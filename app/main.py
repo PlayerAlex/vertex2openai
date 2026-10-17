@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from auth import get_api_key
 from express_key_manager import ExpressKeyManager
-from console_access import is_local_console_request
+from console_access import is_local_console_request, is_local_console_navigation, local_console_access_reason
 from routes import models_api, chat_api
 
 from logger import rt_logger, stats
@@ -212,9 +212,10 @@ LOGIN_HTML = r"""<!DOCTYPE html>
       <span class="text-lg font-bold tracking-tight">快速vertex探测型api</span>
     </div>
     <div class="login-card">
-      <div class="text-xs font-semibold text-blue-600 mb-2 tracking-wide">远程访问验证</div>
+      <div class="text-xs font-semibold text-blue-600 mb-2 tracking-wide">控制台访问验证</div>
       <h1 class="text-xl font-bold mb-2">欢迎回来</h1>
       <p class="text-sm text-neutral-500 mb-4 leading-relaxed">请输入本服务的 API Key。通过本机或局域网 IP 打开时会自动进入，无需重复输入。</p>
+      <p id="local-check" class="text-xs text-neutral-500 mb-3 leading-relaxed" role="status">正在检查本机访问…</p>
 	      <form id="f" onsubmit="return doLogin(event)">
 	        <label for="pw" class="sr-only">访问密码</label>
 	        <input id="pw" type="password" class="inp mb-3" placeholder="密码" autofocus required autocomplete="current-password">
@@ -226,6 +227,38 @@ LOGIN_HTML = r"""<!DOCTYPE html>
   </div>
 <script>
 let retryTimer=null;
+async function checkLocalAccess(){
+  const status=document.getElementById('local-check');
+  const controller=new AbortController(), timeout=setTimeout(()=>controller.abort(),4000);
+  try{
+    const response=await fetch('/api/console-access',{cache:'no-store',signal:controller.signal});
+    if(!response.ok) throw new Error('check_failed');
+    const access=await response.json();
+    if(access.authenticated){
+      // A broken proxy must not turn a successful API check into a reload loop.
+      let mayRedirect=false;
+      try{
+        const key='vertex-local-entry-retry', previous=Number(sessionStorage.getItem(key)||0);
+        if(Date.now()-previous>10000){ sessionStorage.setItem(key,String(Date.now())); mayRedirect=true; }
+      }catch(_e){}
+      if(mayRedirect){ status.textContent='访问已确认，正在进入控制台…'; location.replace('/'); return; }
+      status.textContent='访问已确认。';
+      const link=document.createElement('a'); link.href='/'; link.textContent='点击进入控制台'; link.style.textDecoration='underline'; status.appendChild(link);
+      return;
+    }
+    const reasons={
+      login_required:'当前服务设置为需要登录。',
+      nonlocal_client:'连接来源未识别为本机或局域网。请从运行服务的设备打开本机地址。',
+      nonlocal_host:'当前使用的地址未识别为本机或局域网 IP。',
+      proxy_headers:'请求带有代理转发标记，当前按远程访问处理。',
+      cross_site:'浏览器将请求标记为跨站访问，请在新标签页的地址栏输入控制台地址。',
+      foreign_origin:'浏览器来源与控制台地址不一致，请在新标签页打开当前地址。'
+    };
+    status.textContent=reasons[access.reason]||'当前访问需要验证。';
+  }catch(_e){ status.textContent='自动检查暂时失败，请确认服务运行正常后刷新页面。'; }
+  finally{ clearTimeout(timeout); }
+}
+checkLocalAccess();
 async function doLogin(e){
   e.preventDefault();
   if(retryTimer) return false;
@@ -1317,9 +1350,18 @@ async def healthz():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard_ui(request: Request):
-    if _is_authed(request):
+    if _is_authed(request) or is_local_console_navigation(request, config.CONSOLE_AUTH):
         return HTMLResponse(DASHBOARD_HTML, headers={"Cache-Control": "no-store"})
     return HTMLResponse(LOGIN_HTML, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/console-access")
+async def console_access_status(request: Request):
+    reason = local_console_access_reason(request, config.CONSOLE_AUTH)
+    return JSONResponse(
+        content={"authenticated": _is_authed(request), "local_access": reason == "local", "reason": reason},
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
 
 
 @app.get("/api/client-config")
@@ -1337,6 +1379,9 @@ class LoginBody(BaseModel):
 
 @app.post("/api/login")
 async def login(body: LoginBody, request: Request):
+    # An already-open login page can recover without asking a local user for a key.
+    if is_local_console_request(request, config.CONSOLE_AUTH):
+        return JSONResponse(content={"ok": True}, headers={"Cache-Control": "no-store"})
     ip = request.client.host if request.client else "unknown"
 
     # P2-2：失败三次后指数退避，避免对口令（同时也是 API Key）无限爆破

@@ -160,6 +160,56 @@ class ConsoleLoginEndpointTests(unittest.TestCase):
             with patch.object(main.config, "CONSOLE_AUTH", "required"):
                 self.assertEqual(client.get("/api/client-config").status_code, 401)
 
+    def test_local_browser_link_and_reload_open_console_without_unlocking_cross_site_apis(self):
+        navigation = {"sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document"}
+        with patch.object(main.config, "CONSOLE_AUTH", "local"), TestClient(
+                main.app, base_url="http://127.0.0.1:8050", client=("127.0.0.1", 5678)) as client:
+            for _ in range(2):
+                response = client.get("/", headers=navigation)
+                self.assertIn('id="connection-card"', response.text)
+                self.assertNotIn("set-cookie", response.headers)
+            # Loading HTML does not grant a session or waive API request checks.
+            for path in ("/api/stats", "/api/client-config", "/api/settings"):
+                self.assertEqual(client.get(path, headers=navigation).status_code, 401)
+            self.assertEqual(client.post("/api/settings", json={}, headers=navigation).status_code, 401)
+            self.assertEqual(client.get("/api/stats", headers={"sec-fetch-site": "same-origin"}).status_code, 200)
+            self.assertIn(client.get("/v1/models").status_code, (401, 403))
+            for extra in ({"sec-fetch-dest": "iframe"}, {"sec-fetch-mode": "cors"},
+                          {"x-forwarded-for": "127.0.0.1"}):
+                self.assertIn('id="f"', client.get("/", headers={**navigation, **extra}).text)
+            with patch.object(main.config, "CONSOLE_AUTH", "required"):
+                self.assertIn('id="f"', client.get("/", headers=navigation).text)
+        with patch.object(main.config, "CONSOLE_AUTH", "local"), TestClient(
+                main.app, base_url="http://127.0.0.1:8050", client=("8.8.8.8", 5678)) as client:
+            self.assertIn('id="f"', client.get("/", headers=navigation).text)
+        with patch.object(main.config, "CONSOLE_AUTH", "local"), TestClient(
+                main.app, base_url="http://public.example", client=("127.0.0.1", 5678)) as client:
+            self.assertIn('id="f"', client.get("/", headers=navigation).text)
+
+    def test_console_access_diagnostic_is_uncached_and_contains_no_credentials(self):
+        with patch.object(main.config, "CONSOLE_AUTH", "local"), TestClient(
+                main.app, base_url="http://127.0.0.1:8050", client=("127.0.0.1", 5678)) as client:
+            response = client.get("/api/console-access")
+            self.assertEqual(response.json(), {"authenticated": True, "local_access": True, "reason": "local"})
+            self.assertEqual(response.headers["cache-control"], "no-store")
+            for headers, reason in (({"x-forwarded-for": "secret-header-value"}, "proxy_headers"),
+                                    ({"sec-fetch-site": "cross-site"}, "cross_site"),
+                                    ({"origin": "https://other.example"}, "foreign_origin")):
+                response = client.get("/api/console-access", headers=headers)
+                self.assertEqual(response.json(), {"authenticated": False, "local_access": False, "reason": reason})
+                self.assertNotIn("test-console-key", response.text)
+                self.assertNotIn("secret-header-value", response.text)
+                self.assertNotIn("127.0.0.1", response.text)
+
+    def test_old_login_page_can_continue_without_a_password_on_local_access(self):
+        with patch.object(main.config, "CONSOLE_AUTH", "local"), TestClient(
+                main.app, base_url="http://127.0.0.1:8050", client=("127.0.0.1", 5678)) as client:
+            response = client.post("/api/login", json={"password": ""})
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn("set-cookie", response.headers)
+            response = client.post("/api/login", json={"password": "wrong"}, headers={"sec-fetch-site": "cross-site"})
+            self.assertEqual(response.status_code, 401)
+
 
 class LocalConsoleAccessTests(unittest.TestCase):
     def request(self, client="192.168.1.8", host="192.168.1.2", headers=None):
