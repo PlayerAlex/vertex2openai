@@ -29,7 +29,7 @@ vertex update
 - Google Key、Cookie、模型设置：`$HOME/.quick-vertex-api/web_state.json`。
 - 本服务 API Key：`$HOME/.quick-vertex-api/service.env`。
 - 升级前备份：`$HOME/.quick-vertex-api/backups/日期时间/`，其中 `commit.txt` 记录原版本。
-- 更新不会重新生成 API Key，客户端地址与密钥可以继续使用。
+- 更新不会重新生成 API Key，客户端地址与原密钥可以继续使用。升级后首页复制的密钥会统一显示为 `ksv-` 格式；旧客户端继续使用原密钥也兼容。
 
 检查升级结果：
 
@@ -59,7 +59,7 @@ vertex open
    test -f "$OLD_STATE/web_state.json" && cp "$OLD_STATE/web_state.json" "$HOME/.quick-vertex-api/web_state.json"
    ```
 
-5. 若要继续使用原来的客户端密钥，把新目录 `service.env` 的 `API_KEY=` 改成原来的值；也可以保留新生成的密钥，稍后从控制台首页复制到客户端。不要用旧 `.env` 覆盖整个 `service.env`，新文件还包含正确的数据目录和启动设置。
+5. 若要继续使用原来的客户端密钥，把新目录 `service.env` 的 `API_KEY=` 改成原来的值；也可以保留新生成的 `ksv-` 密钥，稍后从控制台首页复制到客户端。旧的无前缀密钥仍可直接使用，首页会提供统一的 `ksv-` 格式。不要用旧 `.env` 覆盖整个 `service.env`，新文件还包含正确的数据目录和启动设置。
 6. 执行 `vertex start`，打开 `http://127.0.0.1:8050`，检查「通道与凭证」和「模型参数」。原来只通过环境变量提供、尚未写入状态文件的 Google Key 或 Cookie，需要在页面重新填写一次。
 
 确认新版本正常后再处理旧目录；迁移过程不需要卸载旧环境。如果旧版位于另一个 PRoot 环境，先从那个环境导出状态文件到 Termux 主目录，再按上述步骤复制。

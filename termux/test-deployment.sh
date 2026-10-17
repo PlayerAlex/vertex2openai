@@ -40,6 +40,7 @@ else
 fi
 first_key="$(sed -n 's/^API_KEY=//p' "$STATE_DIR/service.env")"
 [[ -n "$first_key" ]]
+[[ "$first_key" =~ ^ksv-[A-Za-z0-9_-]{43}$ ]]
 if [[ "$(uname -s)" != MINGW* ]]; then
   [[ "$(stat -c '%a' "$STATE_DIR/service.env")" == "600" ]]
 fi

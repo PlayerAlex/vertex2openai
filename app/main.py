@@ -1,6 +1,5 @@
 import asyncio
 import os
-import secrets
 import threading
 import time
 from fastapi import FastAPI, Depends, Request, HTTPException
@@ -10,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 
-from auth import get_api_key
+from auth import format_api_key, get_api_key, matches_api_key
 from express_key_manager import ExpressKeyManager
 from console_access import is_local_console_request, is_local_console_navigation, local_console_access_reason
 from routes import models_api, chat_api
@@ -329,9 +328,10 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   input:checked + .slider{background:var(--accent)}
   input:checked + .slider:before{transform:translateX(18px)}
   .hero { background:#fff; border:1px solid var(--border); border-radius:16px; }
-  .helpq { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; min-width:28px; padding:0; flex-shrink:0;
-           border-radius:50%; border:1px solid #cbd5e1; background:#fff; color:#64748b; font-family:inherit; font-size:12px; font-weight:700; line-height:1;
+  .helpq { position:relative; display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; min-width:16px; padding:0; flex-shrink:0;
+           border-radius:50%; border:1px solid #cbd5e1; background:#fff; color:#64748b; font-family:inherit; font-size:10px; font-weight:600; line-height:1;
            cursor:pointer; user-select:none; vertical-align:middle; margin-left:5px; transition:.15s; }
+  .helpq::after { content:""; position:absolute; inset:-6px; }
   .helpq:hover { border-color:var(--accent); color:var(--accent); background:rgba(79,70,229,.06); }
   .helpq.on { border-color:var(--accent); color:#fff; background:var(--accent); }
   .helpbox { display:none; margin-top:7px; padding:9px 11px; border-radius:9px; background:#f7f7fa;
@@ -373,7 +373,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .health-donut-center{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;line-height:1.2}.health-donut-center strong{font-size:25px;letter-spacing:-.04em}.health-donut-center span{font-size:11px;color:var(--muted);margin-top:5px}
   .app-topbar h1{white-space:nowrap}.local-short{display:none}
   @media (max-width: 640px) {
-    .helpq{width:36px;height:36px;min-width:36px}.metric-icon[aria-controls]{width:40px;height:40px}
+    .helpq::after{inset:-10px}
     body{padding-bottom:calc(72px + env(safe-area-inset-bottom))}.app-topbar{height:auto;min-height:68px;padding:12px;position:sticky}.app-topbar>div:first-child{gap:10px}.app-topbar svg{width:34px;height:34px}.app-topbar h1{font-size:15px}.app-topbar p{display:none}.header-actions{width:auto!important;flex-wrap:nowrap!important}.header-actions .pill{display:none}.header-actions #local-access:not(.hidden),.header-actions #logout-btn:not(.hidden){display:inline-flex}.local-wide{display:none}.local-short{display:inline}.workspace-layout{display:block;min-height:0}.content-area{padding:20px 12px 30px}.page-heading{align-items:flex-start;margin-bottom:18px}.page-heading h2{font-size:21px}.page-heading .pill{display:none}
     .side-nav{position:fixed;z-index:40;left:0;right:0;bottom:0;top:auto;height:calc(68px + env(safe-area-inset-bottom));padding:7px 5px calc(7px + env(safe-area-inset-bottom));display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;background:rgba(11,18,32,.96);backdrop-filter:blur(16px);border-top:1px solid rgba(255,255,255,.08)!important}.side-label{display:none}.tab{min-width:0;padding:5px 1px;font-size:11px;line-height:1.1;flex-direction:column;gap:2px;justify-content:center;text-align:center}.tab-icon{font-size:17px;height:21px}.tab.active{box-shadow:none}
     .toolbar { width:100%; display:grid!important; grid-template-columns:1fr 1fr; }
@@ -1352,7 +1352,7 @@ async def console_access_status(request: Request):
 @app.get("/api/client-config")
 async def client_config(request: Request, _auth: bool = Depends(require_auth)):
     return JSONResponse(
-        content={"api_key": config.API_KEY, "local_access": is_local_console_request(request, config.CONSOLE_AUTH)},
+        content={"api_key": format_api_key(config.API_KEY), "local_access": is_local_console_request(request, config.CONSOLE_AUTH)},
         headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
     )
 
@@ -1375,7 +1375,7 @@ async def login(body: LoginBody, request: Request):
         return JSONResponse(status_code=429,
                             content={"error": f"尝试过于频繁，请 {remain} 秒后再试"})
 
-    if config.API_KEY and secrets.compare_digest(body.password, config.API_KEY):
+    if matches_api_key(body.password, config.API_KEY):
         _clear_login_failure(ip)
         resp = JSONResponse(content={"ok": True})
         cookie_options = {

@@ -1,13 +1,38 @@
+import secrets
+
 from fastapi import HTTPException, Header
 from typing import Optional
 from config import API_KEY
 
 
+def format_api_key(configured_key):
+    """Return the client-facing key with the project's stable prefix."""
+    if not configured_key or configured_key.startswith("ksv-"):
+        return configured_key
+    return f"ksv-{configured_key}"
+
+
+def matches_api_key(provided, configured) -> bool:
+    """Safely match canonical keys while retaining legacy unprefixed configs."""
+    if not provided or not configured:
+        return False
+    if not isinstance(provided, str) or not isinstance(configured, str):
+        return False
+    try:
+        provided_bytes = provided.encode("utf-8")
+        configured_bytes = configured.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    if secrets.compare_digest(provided_bytes, configured_bytes):
+        return True
+    if configured.startswith("ksv-"):
+        return False
+    return secrets.compare_digest(provided_bytes, b"ksv-" + configured_bytes)
+
+
 def validate_api_key(api_key_to_validate: str) -> bool:
     """校验调用本代理服务的 Bearer Token。"""
-    if not API_KEY:
-        return False
-    return api_key_to_validate == API_KEY
+    return matches_api_key(api_key_to_validate, API_KEY)
 
 
 async def get_api_key(authorization: Optional[str] = Header(None)):

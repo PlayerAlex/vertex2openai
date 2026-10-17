@@ -100,7 +100,7 @@ class ConsoleLoginEndpointTests(unittest.TestCase):
         self.store_patch.stop()
         self.tmp.cleanup()
 
-    def test_login_is_backward_compatible_and_ordinary_cookie_is_session_only(self):
+    def test_login_accepts_legacy_key_and_ordinary_cookie_is_session_only(self):
         response = self.client.post("/api/login", json={"password": "test-console-key"})
         self.assertEqual(200, response.status_code)
         cookie = response.headers["set-cookie"]
@@ -108,6 +108,21 @@ class ConsoleLoginEndpointTests(unittest.TestCase):
         self.assertIn("SameSite=lax", cookie)
         self.assertNotIn("Max-Age", cookie)
         self.assertNotIn("Expires=", cookie)
+
+        self.client.post("/api/logout")
+        response = self.client.post("/api/login", json={"password": "ksv-test-console-key"})
+        self.assertEqual(200, response.status_code)
+
+    def test_non_ascii_wrong_password_is_rejected_without_server_error(self):
+        response = self.client.post("/api/login", json={"password": "错误密钥"})
+        self.assertEqual(401, response.status_code)
+
+    def test_prefixed_config_rejects_key_without_prefix(self):
+        with patch.object(main.config, "API_KEY", "ksv-strict-key"):
+            rejected = self.client.post("/api/login", json={"password": "strict-key"})
+            accepted = self.client.post("/api/login", json={"password": "ksv-strict-key"})
+        self.assertEqual(401, rejected.status_code)
+        self.assertEqual(200, accepted.status_code)
 
     def test_remember_cookie_has_30_day_lifetime_and_secure_proxy_attribute(self):
         response = self.client.post(
@@ -146,10 +161,18 @@ class ConsoleLoginEndpointTests(unittest.TestCase):
         self.client.post("/api/login", json={"password": "test-console-key"})
         response = self.client.get("/api/client-config")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"api_key": "test-console-key", "local_access": False})
+        self.assertEqual(response.json(), {"api_key": "ksv-test-console-key", "local_access": False})
         self.assertEqual(response.headers["cache-control"], "no-store")
         self.client.post("/api/logout")
         self.assertEqual(self.client.get("/api/client-config").status_code, 401)
+
+    def test_client_config_does_not_double_prefix_canonical_key(self):
+        with patch.object(main.config, "API_KEY", "ksv-ready"):
+            self.client.post("/api/login", json={"password": "ksv-ready"})
+            response = self.client.get("/api/client-config")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("ksv-ready", response.json()["api_key"])
+        self.assertEqual("no-store", response.headers["cache-control"])
 
     def test_direct_lan_console_is_password_free_but_api_still_needs_key(self):
         with patch.object(main.config, "CONSOLE_AUTH", "local"), TestClient(

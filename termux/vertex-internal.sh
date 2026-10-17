@@ -41,7 +41,7 @@ write_default_env() {
   fi
 
   local api_key temp_file
-  api_key="$("$PYTHON_BIN" -c 'import secrets; print(secrets.token_urlsafe(32))')"
+  api_key="$("$PYTHON_BIN" -c 'import secrets; print("ksv-" + secrets.token_urlsafe(32))')"
   temp_file="$ENV_FILE.tmp.$$"
   umask 077
   {

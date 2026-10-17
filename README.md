@@ -87,7 +87,7 @@ apt update && apt full-upgrade -y -o Dpkg::Options::=--force-confold && apt inst
 http://127.0.0.1:8050
 ```
 
-首次安装会随机生成本服务的 `API_KEY`，保存在 Termux 主目录的 `.quick-vertex-api/service.env`，源码更新和重复安装都不会轮换它。Google Key 不需要放进安装命令，启动后在控制台「通道与凭证」中填写即可。源码位于专用 Debian 的 `/opt/quick-vertex-api/repo`，配置、Cookie、API Key 与运行状态放在源码外并持久化。
+首次安装会随机生成 `ksv-` 开头的本服务 `API_KEY`，保存在 Termux 主目录的 `.quick-vertex-api/service.env`，源码更新和重复安装都不会轮换它。升级后首页复制的客户端密钥也统一为 `ksv-` 格式；旧安装的原密钥仍可继续使用，客户端不用立刻修改。Google Key 不需要放进安装命令，启动后在控制台「通道与凭证」中填写即可。源码位于专用 Debian 的 `/opt/quick-vertex-api/repo`，配置、Cookie、API Key 与运行状态放在源码外并持久化。
 
 日常管理只用一个短命令：
 
@@ -114,7 +114,7 @@ vertex update          # 先备份配置，再快进更新并按需更新依赖
 
 ```yaml
 environment:
-  - API_KEY=your_adapter_api_key
+  - API_KEY=ksv-your-random-api-key
   - VERTEX_EXPRESS_API_KEY=your_vertex_express_api_key
 ```
 
@@ -144,7 +144,7 @@ GitHub Actions 在 PR 中仅构建和检查容器健康；主分支推送或从�
 
 | 变量 | 必填 | 默认值 | 说明 |
 |---|---:|---|---|
-| `API_KEY` | 是 | `123456` | 保护本代理的 Key，同时也是**控制台登录密码**。客户端请求用 `Authorization: Bearer <API_KEY>`。 |
+| `API_KEY` | 是 | `123456` | 保护本代理的 Key，同时也是**控制台登录密码**。建议使用 `ksv-your-random-api-key` 形式；客户端请求用 `Authorization: Bearer <API_KEY>`。 |
 | `CONSOLE_AUTH` | 否 | `local` | 本机 / 局域网 IP 直连免登录；设 `required` 则所有控制台访问都需要登录。 |
 | `VERTEX_EXPRESS_API_KEY` | 否 | 空 | Gemini Express Mode API Key，多个用英文逗号分隔。标准模式使用。 |
 | `ROUNDROBIN` | 否 | `false` | 多 Express Key 轮询(`true`)或随机(`false`)。可在控制台热改。 |
@@ -350,14 +350,14 @@ Cookie 直连通道会把 OpenAI `tools` 转成 batchGraphql 的原生 `function
 
 ```bash
 curl http://localhost:8050/v1/models \
-  -H "Authorization: Bearer your_adapter_api_key"
+  -H "Authorization: Bearer ksv-your-random-api-key"
 ```
 
 ### 非流式对话
 
 ```bash
 curl http://localhost:8050/v1/chat/completions \
-  -H "Authorization: Bearer your_adapter_api_key" \
+  -H "Authorization: Bearer ksv-your-random-api-key" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemini-2.5-flash",
@@ -372,7 +372,7 @@ curl http://localhost:8050/v1/chat/completions \
 
 ```bash
 curl http://localhost:8050/v1/chat/completions \
-  -H "Authorization: Bearer your_adapter_api_key" \
+  -H "Authorization: Bearer ksv-your-random-api-key" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemini-2.5-flash",
