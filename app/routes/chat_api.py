@@ -55,7 +55,8 @@ def _resume_start_seq(fastapi_request: Request) -> int:
     try:
         leid = (fastapi_request.headers.get("last-event-id") or "").strip()
         if leid:
-            return max(0, int(leid))
+            # SSE 规范中 Last-Event-ID 是最后已收到的事件，续传应从下一条开始。
+            return max(0, int(leid) + 1)
     except (TypeError, ValueError):
         pass
     try:
@@ -65,6 +66,16 @@ def _resume_start_seq(fastapi_request: Request) -> int:
     except (TypeError, ValueError):
         pass
     return 0
+
+
+def _has_resume_cursor(fastapi_request: Request) -> bool:
+    """请求是否明确要求续传；用于避免已完成缓冲被当作新生成替换。"""
+    try:
+        if (fastapi_request.headers.get("last-event-id") or "").strip():
+            return True
+        return fastapi_request.query_params.get("resume_from") is not None
+    except Exception:
+        return False
 
 
 def _resume_headers(stream_id: str, replay: bool = False) -> dict:
@@ -79,7 +90,7 @@ async def _abort_placeholder(buf, stream_id: str, message: str, code: int = 500)
 
     撤掉占位是为了不让一个「空壳」缓冲挡住后续重试（跟读者手里还拿着缓冲对象，读得完）。
     """
-    err = {"error": {"message": message[:1024], "type": "upstream_error", "code": code}}
+    err = create_openai_error_response(code, message[:1024], "upstream_error")
     await buf.append(frame_with_id(buf.next_seq, f"data: {json.dumps(err, ensure_ascii=False)}\n\n"))
     await buf.append(frame_with_id(buf.next_seq, DONE_FRAME))
     await buf.finish("error", error=message)
@@ -95,13 +106,22 @@ async def _resumable_stream(fastapi_request: Request, request_obj: OpenAIRequest
     stream_id, id_src = compute_stream_id(
         fastapi_request.headers, api_key or "", _request_fingerprint(request_obj))
 
-    buf, is_new = await resumable_store.create_if_absent(
-        stream_id, model=request_obj.model, kind="stream")
-    if not is_new and (buf.kind != "stream" or buf.fully_delivered):
-        # 已经完整交付过（或类型对不上）：这次算新一轮生成，撤掉旧缓冲重新占位。
-        await resumable_store.drop(stream_id)
+    explicit_resume = _has_resume_cursor(fastapi_request)
+    if explicit_resume:
+        buf = await resumable_store.get(stream_id)
+        if buf is None or buf.kind != "stream":
+            return JSONResponse(
+                status_code=404,
+                content=create_openai_error_response(
+                    404, "续传缓冲不存在或已过期，请移除续传游标后发起新请求。", "not_found"))
+        is_new = False
+    else:
         buf, is_new = await resumable_store.create_if_absent(
             stream_id, model=request_obj.model, kind="stream")
+    if not is_new and (buf.kind != "stream" or (buf.fully_delivered and not explicit_resume)):
+        # 原子替换，避免两个并发重生成请求互相撤掉对方刚建的新缓冲。
+        buf, is_new = await resumable_store.replace_if_same(
+            stream_id, buf, model=request_obj.model, kind="stream")
     if not is_new:
         # 命中在用的缓冲：重放已缓冲的部分并继续跟随上游直到本轮结束，不再请求上游。
         start = _resume_start_seq(fastapi_request)
@@ -124,7 +144,8 @@ async def _resumable_stream(fastapi_request: Request, request_obj: OpenAIRequest
         raise
     except Exception as e:
         # 占位已经建了，跟读者可能在等：先把错误落进缓冲再撤占位，然后交给路由兜底。
-        await _abort_placeholder(buf, stream_id, f"{type(e).__name__}: {e}")
+        code, message = extract_upstream_error(e)
+        await _abort_placeholder(buf, stream_id, message, code)
         raise
     if not isinstance(resp, StreamingResponse):
         # 上游直接给了非流式响应（通常是错误 JSON）：不进缓冲，原样返回；
@@ -157,10 +178,9 @@ async def _resumable_json(fastapi_request: Request, request_obj: OpenAIRequest, 
     buf, is_new = await resumable_store.create_if_absent(
         stream_id, model=request_obj.model, kind="json")
     if not is_new and (buf.kind != "json" or buf.fully_delivered):
-        # 已完整交付过（或类型对不上）：这次算新一轮生成，撤掉旧缓冲重新占位。
-        await resumable_store.drop(stream_id)
-        buf, is_new = await resumable_store.create_if_absent(
-            stream_id, model=request_obj.model, kind="json")
+        # 原子替换，避免两个并发重生成请求互相撤掉对方刚建的新缓冲。
+        buf, is_new = await resumable_store.replace_if_same(
+            stream_id, buf, model=request_obj.model, kind="json")
     if not is_new:
         # 命中在用的缓冲：已出结果的直接重放；上游还在算的，等同一个后台泵的结果。
         print(f"↩️ [重放命中] {stream_id}（{id_src}）：直接返回已缓冲的完整回复，不再请求上游。")
@@ -169,7 +189,10 @@ async def _resumable_json(fastapi_request: Request, request_obj: OpenAIRequest, 
         if buf.payload is None:
             return JSONResponse(
                 status_code=504,
-                content=create_openai_error_response(504, "上游响应超时，缓冲未完成。", "timeout"),
+                content=create_openai_error_response(
+                    504,
+                    f"等待上游响应超时；后台仍在处理中，可使用 X-Resume-Id={stream_id} 查询结果。",
+                    "timeout"),
                 headers=_resume_headers(stream_id, replay=True))
         buf.mark_delivered()
         return JSONResponse(status_code=buf.status_code, content=buf.payload,
@@ -181,13 +204,22 @@ async def _resumable_json(fastapi_request: Request, request_obj: OpenAIRequest, 
         # 后台跑上游调用：这条前端连接断了，Google 的回复也要收完进缓冲。
         try:
             resp = await _call_upstream(request_obj, detached)
+        except asyncio.CancelledError:
+            await buf.finish(
+                "error",
+                error="上游读取任务被取消。",
+                payload=create_openai_error_response(499, "上游读取任务被取消。", "client_closed_request"),
+                status_code=499,
+            )
+            raise
         except Exception as e:
             msg = f"{type(e).__name__}: {e}"
+            code, public_message = extract_upstream_error(e)
             print(f"❌ [响应缓冲] {stream_id} 上游调用失败：{msg[:200]}")
             await buf.finish("error", error=msg,
-                             payload={"error": {"message": str(e)[:1024],
-                                                 "type": "upstream_error", "code": 500}},
-                             status_code=500)
+                             payload=create_openai_error_response(
+                                 code, public_message[:1024], "upstream_error"),
+                             status_code=code)
             return
         body = getattr(resp, "body", b"") or b""
         status = getattr(resp, "status_code", 200)
@@ -207,7 +239,10 @@ async def _resumable_json(fastapi_request: Request, request_obj: OpenAIRequest, 
     if buf.payload is None:
         return JSONResponse(
             status_code=504,
-            content=create_openai_error_response(504, "上游响应超时，缓冲未完成。", "timeout"),
+            content=create_openai_error_response(
+                504,
+                f"等待上游响应超时；后台仍在处理中，可使用 X-Resume-Id={stream_id} 查询结果。",
+                "timeout"),
             headers=_resume_headers(stream_id))
     # 交给 ASGI 层即视为已交付：半路丢包的重试会走“新一轮生成”（正确，仅多一次上游调用）；
     # 上游还在算时断线的重试会命中上面的重放分支（不烧配额）。
@@ -264,6 +299,28 @@ async def resumable_poll(stream_id: str, fastapi_request: Request,
             status_code=404,
             content=create_openai_error_response(
                 404, f"未找到响应缓冲 {stream_id}（可能已过期被清理）。", "not_found"))
+    if buf.kind == "json":
+        if wait > 0 and not buf.done:
+            await buf.wait_for(2 ** 62, min(wait, 25.0))
+        if buf.payload is not None:
+            buf.mark_delivered()
+            return JSONResponse(
+                status_code=buf.status_code,
+                content=buf.payload,
+                headers=_resume_headers(stream_id, replay=True),
+            )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "id": stream_id,
+                "model": buf.model,
+                "kind": "json",
+                "status": buf.status,
+                "error": buf.error,
+                "done": buf.done,
+            },
+            headers=_resume_headers(stream_id, replay=True),
+        )
     limit = max(1, min(limit, 500))
     if wait > 0 and not buf.done:
         await buf.wait_for(max(0, from_), min(wait, 25.0))

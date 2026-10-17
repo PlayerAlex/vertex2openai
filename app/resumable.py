@@ -41,9 +41,16 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 import config as app_config
 from runtime_state import app_state
+from api_helpers import create_openai_error_response, extract_upstream_error
 
 # 终止帧：与 OpenAI 流一致，客户端见到它即可判定「本轮完整结束」
 DONE_FRAME = "data: [DONE]\n\n"
+
+
+class ResumableCapacityError(RuntimeError):
+    """缓冲容量已被活跃请求占满，调用方应稍后重试。"""
+
+    status_code = 503
 
 
 def _setting(key: str) -> Any:
@@ -128,6 +135,24 @@ class ResumableBuffer:
                 self.payload = payload
             if status_code is not None:
                 self.status_code = status_code
+            self.finished_at = time.time()
+            self._cond.notify_all()
+
+    async def fail(self, message: str, status_code: int = 500) -> None:
+        """原子结束失败请求，包括尚未启动的泵任务，唤醒所有读者。"""
+        payload = create_openai_error_response(status_code, message[:1024], "upstream_error")
+        async with self._cond:
+            if self.done:
+                return
+            if self.kind == "stream":
+                self.events.append(frame_with_id(
+                    len(self.events), f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"))
+                self.events.append(frame_with_id(len(self.events), DONE_FRAME))
+            else:
+                self.payload = payload
+            self.status = "error"
+            self.error = payload["error"]["message"]
+            self.status_code = status_code
             self.finished_at = time.time()
             self._cond.notify_all()
 
@@ -218,9 +243,13 @@ class ResumableStore:
 
     async def create(self, stream_id: str, model: str = "", kind: str = "stream") -> ResumableBuffer:
         async with self._lock:
+            existing = self._buffers.get(stream_id)
+            if existing is None:
+                await self._reserve_slot_locked()
+            else:
+                await self._remove_locked(stream_id)
             buf = ResumableBuffer(stream_id, model=model, kind=kind)
             self._buffers[stream_id] = buf
-            await self._evict_locked()
             return buf
 
     async def create_if_absent(self, stream_id: str, model: str = "",
@@ -236,17 +265,32 @@ class ResumableStore:
             if buf is not None:
                 buf.last_access = time.time()
                 return buf, False
+            await self._reserve_slot_locked()
             buf = ResumableBuffer(stream_id, model=model, kind=kind)
             self._buffers[stream_id] = buf
-            await self._evict_locked()
             return buf, True
+
+    async def replace_if_same(self, stream_id: str, expected: ResumableBuffer,
+                              model: str = "", kind: str = "stream") -> Tuple[ResumableBuffer, bool]:
+        """仅当登记的仍是 expected 时原子替换，避免并发重生成互相删除新缓冲。"""
+        async with self._lock:
+            current = self._buffers.get(stream_id)
+            if current is not expected:
+                if current is None:
+                    await self._reserve_slot_locked()
+                    current = ResumableBuffer(stream_id, model=model, kind=kind)
+                    self._buffers[stream_id] = current
+                    return current, True
+                current.last_access = time.time()
+                return current, False
+            await self._remove_locked(stream_id)
+            replacement = ResumableBuffer(stream_id, model=model, kind=kind)
+            self._buffers[stream_id] = replacement
+            return replacement, True
 
     async def drop(self, stream_id: str) -> bool:
         async with self._lock:
-            task = self._pumps.pop(stream_id, None)
-            if task and not task.done():
-                task.cancel()
-            return self._buffers.pop(stream_id, None) is not None
+            return await self._remove_locked(stream_id)
 
     async def list_meta(self) -> List[dict]:
         async with self._lock:
@@ -254,8 +298,13 @@ class ResumableStore:
                                              key=lambda x: x.created_at, reverse=True)]
 
     def register_pump(self, stream_id: str, task: asyncio.Task) -> None:
+        old_task = self._pumps.get(stream_id)
+        if old_task is not None and old_task is not task and not old_task.done():
+            old_task.cancel()
         self._pumps[stream_id] = task
-        task.add_done_callback(lambda _t, sid=stream_id: self._pumps.pop(sid, None))
+        task.add_done_callback(
+            lambda completed, sid=stream_id: self._pumps.pop(sid, None)
+            if self._pumps.get(sid) is completed else None)
 
     def cancel_all_pumps(self) -> None:
         """取消所有后台泵任务（服务停机时调用）。"""
@@ -264,20 +313,30 @@ class ResumableStore:
                 task.cancel()
         self._pumps.clear()
 
-    async def _evict_locked(self) -> None:
-        """容量上限：优先淘汰最旧的「已完成」缓冲；实在没有就淘汰最旧的。"""
+    async def _remove_locked(self, stream_id: str) -> bool:
+        """在持有登记锁时移除缓冲，并结束与它绑定的后台任务。"""
+        task = self._pumps.pop(stream_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+        buf = self._buffers.pop(stream_id, None)
+        if buf is not None and not buf.done:
+            await buf.fail("上游读取任务被取消。", 499)
+        return buf is not None
+
+    async def _reserve_slot_locked(self) -> None:
+        """为新缓冲预留容量；只回收已完成且无人读取的缓冲。"""
         limit = max_streams()
-        if len(self._buffers) <= limit:
+        if len(self._buffers) < limit:
             return
         finished = sorted((b for b in self._buffers.values() if b.done and b.readers == 0),
                           key=lambda x: x.finished_at or x.created_at)
         for buf in finished:
-            if len(self._buffers) <= limit:
+            if len(self._buffers) < limit:
                 return
-            self._buffers.pop(buf.id, None)
-        while len(self._buffers) > limit:
-            oldest = min(self._buffers.values(), key=lambda x: x.created_at)
-            self._buffers.pop(oldest.id, None)
+            await self._remove_locked(buf.id)
+        if len(self._buffers) >= limit:
+            raise ResumableCapacityError(
+                f"响应缓冲容量已满（上限 {limit}），现有缓冲仍在运行或正在被读取，请稍后重试。")
 
     async def sweep(self) -> int:
         """清掉超过 TTL 的已完成缓冲（有读者在读的不动）。"""
@@ -290,13 +349,12 @@ class ResumableStore:
                     continue
                 ref = buf.finished_at or buf.last_access
                 if buf.done and (now - ref) > ttl:
-                    self._buffers.pop(sid, None)
+                    await self._remove_locked(sid)
                     removed += 1
                 elif not buf.done and (now - buf.created_at) > max(ttl * 4, 1800):
                     # 极端兜底：上游永不结束的僵尸缓冲
-                    self._buffers.pop(sid, None)
+                    await self._remove_locked(sid)
                     removed += 1
-            await self._evict_locked()
         if removed:
             print(f"🧹 [续传缓冲] 已清理 {removed} 个过期响应缓冲。")
         return removed
@@ -356,6 +414,8 @@ async def pump_stream(buf: ResumableBuffer, body_iterator: AsyncIterator[Any]) -
     前端凭 Last-Event-ID / resume_from 续传时与这里的序号对齐。
     """
     try:
+        upstream_error = None
+        upstream_error_code = 500
         async for chunk in body_iterator:
             text = _as_text(chunk)
             if not text:
@@ -364,20 +424,36 @@ async def pump_stream(buf: ResumableBuffer, body_iterator: AsyncIterator[Any]) -
                 # 注释帧（旧心跳等）不是事件：不进缓冲、不占序号，保持 id == 下标
                 continue
             await buf.append(frame_with_id(buf.next_seq, text))
+            for line in text.splitlines():
+                if not line.startswith("data:"):
+                    continue
+                raw = line[5:].strip()
+                if not raw or raw == "[DONE]":
+                    continue
+                try:
+                    data = json.loads(raw)
+                except (TypeError, ValueError):
+                    continue
+                error = data.get("error") if isinstance(data, dict) else None
+                if isinstance(error, dict):
+                    upstream_error = str(error.get("message") or "上游返回错误事件。")
+                    code = error.get("code")
+                    if isinstance(code, int) and 400 <= code <= 599:
+                        upstream_error_code = code
         if not buf.events or not buf.events[-1].strip().endswith("[DONE]"):
             await buf.append(frame_with_id(buf.next_seq, DONE_FRAME))
+        if upstream_error is not None:
+            await buf.finish("error", error=upstream_error, status_code=upstream_error_code)
+            return
         await buf.finish("done")
         print(f"📦 [续传缓冲] {buf.id} 上游已读完，共 {len(buf.events)} 个事件已完整落缓冲。")
     except asyncio.CancelledError:
-        await buf.finish("error", error="上游读取任务被取消。")
+        await buf.fail("上游读取任务被取消。", 499)
         raise
     except Exception as e:
-        msg = f"{type(e).__name__} - {e}"
-        print(f"❌ [续传缓冲] {buf.id} 上游读取失败：{msg}")
-        err = {"error": {"message": str(e)[:1024], "type": "upstream_error", "code": 500}}
-        await buf.append(frame_with_id(buf.next_seq, f"data: {json.dumps(err, ensure_ascii=False)}\n\n"))
-        await buf.append(frame_with_id(buf.next_seq, DONE_FRAME))
-        await buf.finish("error", error=msg)
+        code, msg = extract_upstream_error(e)
+        print(f"❌ [续传缓冲] {buf.id} 上游读取失败：{type(e).__name__} - {msg}")
+        await buf.fail(msg, code)
     finally:
         aclose = getattr(body_iterator, "aclose", None)
         if aclose:

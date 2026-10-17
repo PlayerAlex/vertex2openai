@@ -159,44 +159,101 @@ def create_openai_error_response(status_code: int, message: str, error_type: str
         }
     }
 
-def extract_upstream_error(e: Exception) -> tuple[int, str]:
-    """从上游异常里尽力提取 (HTTP 状态码, 简明消息)。
+def _exception_chain(error: BaseException):
+    """按 cause/context 遍历异常链，并防止手工构造的循环链。"""
+    seen = set()
+    current = error
+    while isinstance(current, BaseException) and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
 
-    google-genai 的 ClientError/ServerError 带 .code 与结构化 message；
-    其余异常回退 500 + 类名+摘要。用于把 404/403/400 等如实透传给客户端，
-    避免笼统的 500 Internal Server Error。
+
+def _valid_http_status(value: Any) -> Optional[int]:
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None
+    return value if 400 <= value <= 599 else None
+
+
+def _explicit_error_status(chain) -> Optional[int]:
+    for item in chain:
+        values = [getattr(item, "code", None), getattr(item, "status_code", None)]
+        if isinstance(item, httpx.HTTPStatusError) and item.response is not None:
+            values.insert(0, item.response.status_code)
+        for value in values:
+            code = _valid_http_status(value)
+            if code is not None:
+                return code
+    return None
+
+
+def extract_upstream_error(e: Exception) -> tuple[int, str]:
+    """从异常及其原因链提取稳定的 ``(HTTP 状态码, 消息)``。
+
+    优先采用明确的 HTTP/SDK 状态码。超时映射为 504，其他 httpx 传输错误
+    映射为 502；这样空消息的网络异常也不会退化为无意义的 500 空错误。
     """
-    code = getattr(e, "code", None) or getattr(e, "status_code", None)
-    msg = str(e)
-    # 从形如 "{'error': {'code':404,'message':...}}" 的 message 里提取更干净的说明
+    chain = list(_exception_chain(e))
+    code = _explicit_error_status(chain)
+
+    if code is None:
+        if any(isinstance(item, (httpx.TimeoutException, asyncio.TimeoutError)) for item in chain):
+            code = 504
+        elif any(isinstance(item, httpx.TransportError) for item in chain):
+            code = 502
+
+    messages = [str(item).strip() for item in chain if str(item).strip()]
+    msg = messages[0] if messages else e.__class__.__name__
     try:
         m = re.search(r"'message':\s*'([^']+)'", msg) or re.search(r'"message":\s*"([^"]+)"', msg)
         if m:
             msg = m.group(1)
     except Exception:
         pass
-    if not isinstance(code, int) or not (400 <= code <= 599):
-        low = str(e).lower()
-        if "not found" in low or "404" in low:
+
+    if code is None:
+        low = " ".join(messages).lower()
+        explicit_status = re.search(r"\b(400|401|403|404|408|425|429|500|502|503|504)\b", low)
+        if explicit_status:
+            code = int(explicit_status.group(1))
+        elif "not found" in low:
             code = 404
-        elif "permission" in low or "403" in low or "denied" in low:
+        elif "permission" in low or "denied" in low:
             code = 403
-        elif "invalid" in low or "400" in low:
+        elif "invalid" in low:
             code = 400
+        elif "timeout" in low or "timed out" in low:
+            code = 504
+        elif any(term in low for term in ("network", "connection", "remote protocol")):
+            code = 502
         else:
             code = 500
     return code, msg
 
 
-def is_retryable_exception(e):
-    error_str = str(e).lower()
-    if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in [429, 503, 502]:
+def is_retryable_exception(e: Exception) -> bool:
+    """只重试明确的瞬时故障，未知程序异常和本地协议错误直接失败。"""
+    retryable_statuses = {408, 425, 429, 500, 502, 503, 504}
+    chain = list(_exception_chain(e))
+    status = _explicit_error_status(chain)
+    if status is not None:
+        return status in retryable_statuses
+    if any(isinstance(item, (httpx.TimeoutException, asyncio.TimeoutError,
+                             httpx.NetworkError, httpx.RemoteProtocolError))
+           for item in chain):
         return True
-    if hasattr(e, "code") and e.code in [429, 503, 502]:
-        return True
-    if "429" in error_str or "503" in error_str or "too many requests" in error_str or "quota" in error_str:
-        return True
-    return False
+    if any(isinstance(item, httpx.TransportError) for item in chain):
+        return False
+    error_str = " ".join(str(item) for item in chain).lower()
+    explicit_status = re.search(r"\b(400|401|403|404|408|425|429|500|502|503|504)\b", error_str)
+    if explicit_status:
+        return int(explicit_status.group(1)) in retryable_statuses
+    return any(term in error_str for term in (
+        "too many requests", "quota", "resource exhausted", "overloaded",
+        "temporarily unavailable", "try again later", "timeout", "timed out",
+    ))
 
 def create_generation_config(request: OpenAIRequest) -> Dict[str, Any]:
     config: Dict[str, Any] = {}
@@ -902,7 +959,10 @@ async def gemini_fake_stream_generator(
         print(f"❌ [API 错误响应] 假流发生器运行崩溃 (Model: {request_obj.model})。错误详情: {err_msg_detail}")
         sse_err_msg_display = str(e_outer_gemini)
         if len(sse_err_msg_display) > 512: sse_err_msg_display = sse_err_msg_display[:512] + "..."
-        err_resp_sse = create_openai_error_response(500, sse_err_msg_display, "server_error")
+        status_code, sse_err_msg_display = extract_upstream_error(e_outer_gemini)
+        err_resp_sse = create_openai_error_response(
+            status_code, sse_err_msg_display,
+            "timeout_error" if status_code == 504 else "upstream_error")
         json_payload_error = json.dumps(err_resp_sse)
         if not is_auto_attempt:
             yield f"data: {json_payload_error}\n\n"
@@ -1056,11 +1116,7 @@ async def execute_gemini_call(
                         print(f"ℹ️ [客户端断开] 真流式响应期间客户端已断开，模型 {model_to_call} 的请求已安全终止。")
                         raise
                     except Exception as e_stream_call:
-                        error_str = str(e_stream_call).lower()
-                        is_retryable = (
-                            "429" in error_str or "503" in error_str or "too many requests" in error_str
-                            or "quota" in error_str or "resource exhausted" in error_str
-                        )
+                        is_retryable = is_retryable_exception(e_stream_call)
 
                         # location 钉定路径不对 → 退回裸模型名再试一次（仅在还没输出内容时）
                         if (fallback_model and model_to_call != fallback_model
@@ -1101,13 +1157,14 @@ async def execute_gemini_call(
                         s_err = str(e_stream_call); s_err = s_err[:1024]+"..." if len(s_err)>1024 else s_err
                         if is_auto_attempt:
                             raise e_stream_call
-                        # 已经输出过内容：不再重发错误体，只补结束标记，避免污染已有输出
-                        if has_yielded:
-                            yield "data: [DONE]\n\n"
-                        else:
-                            err_resp = create_openai_error_response(500, s_err, "server_error")
-                            yield f"data: {json.dumps(err_resp)}\n\n"
-                            yield "data: [DONE]\n\n"
+                        status_code, s_err = extract_upstream_error(e_stream_call)
+                        err_resp = create_openai_error_response(
+                            status_code, s_err,
+                            "timeout_error" if status_code == 504 else "upstream_error")
+                        # HTTP 200 已提交后，无论是否已有正文，都用 SSE error envelope 收尾。
+                        # 已有正文时仍绝不重试，避免把前半段答案重复发送。
+                        yield f"data: {json.dumps(err_resp, ensure_ascii=False)}\n\n"
+                        yield "data: [DONE]\n\n"
                         return
 
             return StreamingResponse(_gemini_real_stream_generator_inner(), media_type="text/event-stream")

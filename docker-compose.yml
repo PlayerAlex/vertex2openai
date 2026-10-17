@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   openai-to-gemini:
-    image: ghcr.io/bad-woman/vertex2openai:latest
+    # 从当前仓库构建，确保使用本分支的修复。
+    build: .
+    image: vertex2openai:local
     container_name: vertex2openai
     ports:
       - "8050:7860"

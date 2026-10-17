@@ -45,6 +45,27 @@ Vertex2OpenAI 是一个 **OpenAI API 兼容代理**。它对外提供 OpenAI 风
   - **断连即停**：客户端断开后立即停止上游调用与重试。
 - **中文运行日志**：密钥轮询、上游调用、重试退避、权限报错、Token 统计等均为中文实时说明。
 
+## 稳定性与错误处理
+
+- 上游 HTTP / SDK 错误保留状态码；超时返回 `504`，连接失败返回 `502`。只有明确的瞬时故障按 `retry_max` 重试，普通鉴权/参数错误和未知程序异常直接失败。
+- 流式响应已经开始后，失败通过 `data: {"error": {...}}` 发送，再以 `[DONE]` 结束；客户端应检查 `error`，不能只凭 HTTP 200 或 `[DONE]` 判断成功。已有输出时不会重试整轮回答。模型内容过滤保留 `finish_reason: "content_filter"`。
+- `Last-Event-ID: N` 从事件 **N+1** 续传；`?resume_from=N` 从事件 **N** 开始。续传 POST 必须保留原请求体、认证信息及幂等键。显式续传不会触发新生成，缓冲过期时返回 `404`。
+- `resumable_max_streams` 容量不足时，仅回收已完成且无人读取的缓冲；全部在用时，新请求返回 `503`，原有请求和相同请求的续传不受影响。
+- 非流式请求等待 600 秒仍未完成时返回 `504`，后台继续处理。用响应头 `X-Resume-Id` 的值访问 `GET /v1/resumable/{id}?wait=25`（携带原认证）：处理中返回 `202`，完成后返回原始 JSON 结果及状态码。
+
+续传缓冲保存在当前进程内，服务重启后会丢失；多副本部署需将续传请求路由至原实例。
+
+### 运行回归测试
+
+在仓库根目录执行（Python 3.11+）：
+
+```bash
+python -m pip install -r app/requirements.txt
+python -m unittest discover -s tests -t . -v
+```
+
+测试使用模拟上游，无需 Google 凭据或外部网络。GitHub Actions 会在 Python 3.11 / 3.12 上执行相同测试。
+
 ## 快速开始（本地 Docker）
 
 编辑 `docker-compose.yml`，设置初始环境变量：
@@ -58,7 +79,7 @@ environment:
 启动：
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 默认将宿主机 `8050` 映射到容器 `7860`。浏览器打开控制台并用密码（`API_KEY`）登录：
