@@ -1183,7 +1183,7 @@ async def execute_gemini_call(
                             # 原先硬编码 2**(attempt%4)，控制台设置对真流式完全没作用。
                             wait_time = backoff_sec
                             stats.add_retry() # 核心：手动重试计入大盘
-                            print(f"⚠️ [自动重试] Agent Platform Express Mode 流式请求返回 429/503 或配额繁忙。第 {attempt + 1} 次退避重试，等待 {wait_time} 秒。")
+                            print(f"⚠️ [自动重试] Express 流式请求失败，状态 {status_code or type(e_stream_call).__name__}。第 {attempt + 1}/{max_retries} 次重试，等待 {wait_time} 秒。")
                             if await _client_gone():
                                 print(f"ℹ️ [客户端断开] 重试前检测到客户端已断开，停止调用模型 {model_to_call}。")
                                 return

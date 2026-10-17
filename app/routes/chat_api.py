@@ -15,7 +15,7 @@ from api_helpers import extract_upstream_error, create_openai_error_response
 # 第二轮：弱网可靠传输 —— 服务端响应缓冲 + 序列号事件 + 断线重放 / 分片轮询。
 # 上游的读取由后台泵任务驱动，与前端连接解绑；Google 的回复总能完整落缓冲，
 # 前端凭 Last-Event-ID / ?resume_from= 续传，或轮询 /v1/resumable/{id} 拉分片。
-# 不用 SSE 心跳保活，不维持单条长连接。
+# 当前 SSE 读者会发送保活心跳；断线后仍可从缓冲续传。
 from resumable import (
     resumable_store,
     compute_stream_id,

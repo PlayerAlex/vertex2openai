@@ -9,6 +9,7 @@ from resumable import (
     ResumableCapacityError,
     ResumableStore,
     pump_stream,
+    sse_from_buffer,
 )
 
 
@@ -65,7 +66,63 @@ class ResumableStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(observed, replacement)
 
 
+class BufferHeartbeatTests(unittest.IsolatedAsyncioTestCase):
+    async def test_idle_heartbeats_keep_data_cursor_and_delivery_unchanged(self):
+        buf = ResumableBuffer('heartbeat')
+        reader = sse_from_buffer(buf, heartbeat_interval=0.01)
+        for _ in range(2):
+            self.assertEqual(await asyncio.wait_for(anext(reader), 1), ': keep-alive\n\n')
+        self.assertEqual(buf.next_seq, 0)
+        self.assertFalse(buf.fully_delivered)
+        await buf.append('id: 0\ndata: {"choices":[]}\n\n')
+        await buf.append('id: 1\n' + DONE_FRAME)
+        await buf.finish()
+        frames = [frame async for frame in reader]
+        self.assertEqual(frames, buf.events)
+        self.assertTrue(buf.fully_delivered)
+        self.assertEqual(buf.readers, 0)
+        self.assertEqual([frame async for frame in sse_from_buffer(buf, 1)], ['id: 1\n' + DONE_FRAME])
+
+    async def test_reader_closing_during_heartbeat_releases_reader_only(self):
+        buf = ResumableBuffer('disconnect')
+        reader = sse_from_buffer(buf, heartbeat_interval=0.01)
+        await anext(reader)
+        self.assertEqual(buf.readers, 1)
+        await reader.aclose()
+        self.assertEqual(buf.readers, 0)
+        self.assertFalse(buf.done)
+        self.assertFalse(buf.fully_delivered)
+
+
 class PumpStreamTests(unittest.IsolatedAsyncioTestCase):
+    async def test_combined_heartbeat_and_data_keep_body_and_per_event_ids(self):
+        async def chunks():
+            yield ': keep-alive\n\ndata: {"choices":[{"delta":{"content":"hello"}}]}\n\ndata: [DONE]\n\n'
+
+        buf = ResumableBuffer('combined')
+        await pump_stream(buf, chunks())
+        self.assertEqual(len(buf.events), 2)
+        self.assertIn('hello', buf.events[0])
+        self.assertTrue(buf.events[0].startswith('id: 0\ndata:'))
+        self.assertEqual(buf.events[1], 'id: 1\n' + DONE_FRAME)
+        self.assertEqual([frame async for frame in sse_from_buffer(buf, 1)], [buf.events[1]])
+
+    async def test_utf8_frames_split_across_chunks_keep_text_and_error_status(self):
+        payload = ': keep-alive\r\n\r\ndata: {"choices":[{"delta":{"content":"你好"}}]}\r\n\r\ndata: {"error":{"code":504,"message":"timeout"}}\r\n\r\ndata: [DONE]\r\n\r\n'
+
+        async def chunks():
+            for byte in payload.encode('utf-8'):
+                yield bytes([byte])
+
+        buf = ResumableBuffer('split')
+        await pump_stream(buf, chunks())
+        self.assertEqual(len(buf.events), 3)
+        self.assertIn('你好', buf.events[0])
+        self.assertEqual(buf.status_code, 504)
+        self.assertEqual(buf.status, 'error')
+        self.assertTrue(buf.events[1].startswith('id: 1\n'))
+        self.assertEqual(buf.events[2], 'id: 2\n' + DONE_FRAME)
+
     async def test_error_sse_marks_buffer_error_and_preserves_code(self):
         async def chunks():
             payload = {"error": {"message": "rate limited", "code": 429}}

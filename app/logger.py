@@ -3,10 +3,13 @@ import time
 import asyncio
 import re
 import threading
+from collections import Counter, deque
+from contextvars import ContextVar
 from typing import List, Optional
 
 original_print = builtins.print
 ANSI_ESCAPE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+request_stats_managed = ContextVar('request_stats_managed', default=False)
 
 
 class ProxyStats:
@@ -15,6 +18,9 @@ class ProxyStats:
         self.total_requests = 0
         self.success_requests = 0
         self.error_requests = 0
+        self.cancelled_requests = 0
+        self.error_breakdown = Counter()
+        self.recent_errors = deque(maxlen=20)
         self.retry_counts = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
@@ -25,20 +31,24 @@ class ProxyStats:
             self.total_requests += 1
 
     def add_error(self):
+        # HTTP 请求由响应中间件统一结算；后台泵继承该上下文，不能重复计数。
+        if request_stats_managed.get():
+            return
         with self.lock:
             self.error_requests += 1
 
     def add_request(self, success=True, is_error=False):
-        with self.lock:
-            if is_error:
-                self.error_requests += 1
+        if is_error:
+            self.add_error()
 
     def add_retry(self):
         with self.lock:
             self.retry_counts += 1
 
     def add_success(self):
-        """直接计一次成功请求（Cookie 通道不产生 token 统计行，成功数单独计入）。"""
+        """保留直接调用的兼容入口；HTTP 请求以最终响应为准。"""
+        if request_stats_managed.get():
+            return
         with self.lock:
             self.success_requests += 1
 
@@ -46,7 +56,20 @@ class ProxyStats:
         with self.lock:
             self.prompt_tokens += p_tokens
             self.completion_tokens += c_tokens
-            self.success_requests += 1
+
+    def record_result(self, outcome, *, category='', label='', status=0, request_id=''):
+        with self.lock:
+            if outcome == 'success':
+                self.success_requests += 1
+            elif outcome == 'cancelled':
+                self.cancelled_requests += 1
+            else:
+                self.error_requests += 1
+                self.error_breakdown[category] += 1
+                self.recent_errors.appendleft({
+                    'time': time.time(), 'request_id': request_id,
+                    'category': category, 'label': label, 'status': status,
+                })
 
     def get_json_stats(self):
         with self.lock:
@@ -55,6 +78,12 @@ class ProxyStats:
                 "total": self.total_requests,
                 "success": self.success_requests,
                 "error": self.error_requests,
+                "cancelled": self.cancelled_requests,
+                "in_flight": max(0, self.total_requests - self.success_requests
+                                 - self.error_requests - self.cancelled_requests),
+                "error_breakdown": dict(self.error_breakdown),
+                "recent_errors": list(self.recent_errors),
+                "started_at": self.start_time,
                 "retries": self.retry_counts,
                 "prompt_tokens": self.prompt_tokens,
                 "completion_tokens": self.completion_tokens,

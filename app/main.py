@@ -16,6 +16,7 @@ from console_access import is_local_console_request, is_local_console_navigation
 from routes import models_api, chat_api
 
 from logger import rt_logger, stats
+from request_stats import ERROR_LABELS, RequestStatsMiddleware
 import config
 from runtime_state import app_state
 import model_capabilities as mc
@@ -98,19 +99,7 @@ app.add_middleware(
 app.state.express_key_manager = express_key_manager
 
 
-@app.middleware("http")
-async def stats_tracker_middleware(request: Request, call_next):
-    if "chat/completions" in request.url.path:
-        stats.increment_total()
-        try:
-            response = await call_next(request)
-            if response.status_code >= 400:
-                stats.add_error()
-            return response
-        except Exception as e:
-            stats.add_error()
-            raise e
-    return await call_next(request)
+app.add_middleware(RequestStatsMiddleware, counters=stats)
 
 
 # ====== 仅密码登录（Cookie 会话，免输账号）======
@@ -340,10 +329,8 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   input:checked + .slider{background:var(--accent)}
   input:checked + .slider:before{transform:translateX(18px)}
   .hero { background:#fff; border:1px solid var(--border); border-radius:16px; }
-  /* 说明收纳：面板功能很多，长说明平铺会挤爆版面，但说明本身不能省。
-     统一收进 ⓘ 折叠块——默认只占一个图标，点开才展开详细文字。 */
-  .helpq { display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px;
-           border-radius:50%; border:1px solid #d4d4d8; color:#a1a1aa; font-size:10px; line-height:1;
+  .helpq { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; min-width:28px; padding:0; flex-shrink:0;
+           border-radius:50%; border:1px solid #cbd5e1; background:#fff; color:#64748b; font-family:inherit; font-size:12px; font-weight:700; line-height:1;
            cursor:pointer; user-select:none; vertical-align:middle; margin-left:5px; transition:.15s; }
   .helpq:hover { border-color:var(--accent); color:var(--accent); background:rgba(79,70,229,.06); }
   .helpq.on { border-color:var(--accent); color:#fff; background:var(--accent); }
@@ -359,6 +346,9 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .hidden { display:none!important; }
   .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
   .status-note.unsaved { color:#b45309; font-weight:600; }
+  .settings-primary{border-color:#bfdbfe;background:linear-gradient(135deg,#fff 0%,#f5f9ff 100%)}
+  .settings-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap}
+  .settings-actions .btn{min-width:132px}
   .setup-callout { border:1px solid #c7d2fe; background:#eef2ff; border-radius:12px; padding:14px; }
   .key-primary { min-width:0; flex:1; }
   .key-actions { display:flex; align-items:center; gap:8px; }
@@ -383,8 +373,9 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .health-donut-center{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;line-height:1.2}.health-donut-center strong{font-size:25px;letter-spacing:-.04em}.health-donut-center span{font-size:11px;color:var(--muted);margin-top:5px}
   .app-topbar h1{white-space:nowrap}.local-short{display:none}
   @media (max-width: 640px) {
+    .helpq{width:36px;height:36px;min-width:36px}.metric-icon[aria-controls]{width:40px;height:40px}
     body{padding-bottom:calc(72px + env(safe-area-inset-bottom))}.app-topbar{height:auto;min-height:68px;padding:12px;position:sticky}.app-topbar>div:first-child{gap:10px}.app-topbar svg{width:34px;height:34px}.app-topbar h1{font-size:15px}.app-topbar p{display:none}.header-actions{width:auto!important;flex-wrap:nowrap!important}.header-actions .pill{display:none}.header-actions #local-access:not(.hidden),.header-actions #logout-btn:not(.hidden){display:inline-flex}.local-wide{display:none}.local-short{display:inline}.workspace-layout{display:block;min-height:0}.content-area{padding:20px 12px 30px}.page-heading{align-items:flex-start;margin-bottom:18px}.page-heading h2{font-size:21px}.page-heading .pill{display:none}
-    .side-nav{position:fixed;z-index:40;left:0;right:0;bottom:0;top:auto;height:calc(68px + env(safe-area-inset-bottom));padding:7px 8px calc(7px + env(safe-area-inset-bottom));display:grid!important;grid-template-columns:repeat(4,1fr);gap:4px;background:rgba(11,18,32,.96);backdrop-filter:blur(16px);border-top:1px solid rgba(255,255,255,.08)!important}.side-label{display:none}.tab{padding:5px 3px;font-size:10px;flex-direction:column;gap:2px;justify-content:center;text-align:center}.tab-icon{font-size:17px;height:21px}.tab.active{box-shadow:none}
+    .side-nav{position:fixed;z-index:40;left:0;right:0;bottom:0;top:auto;height:calc(68px + env(safe-area-inset-bottom));padding:7px 5px calc(7px + env(safe-area-inset-bottom));display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;background:rgba(11,18,32,.96);backdrop-filter:blur(16px);border-top:1px solid rgba(255,255,255,.08)!important}.side-label{display:none}.tab{min-width:0;padding:5px 1px;font-size:11px;line-height:1.1;flex-direction:column;gap:2px;justify-content:center;text-align:center}.tab-icon{font-size:17px;height:21px}.tab.active{box-shadow:none}
     .toolbar { width:100%; display:grid!important; grid-template-columns:1fr 1fr; }
     .toolbar .btn { grid-column:1/-1; }
     .key-main { align-items:stretch!important; flex-direction:column; }
@@ -395,7 +386,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     .cookie-save-row { align-items:flex-start!important; flex-direction:column; }
     .cookie-save-row .btn { width:100%; }
     #view-logs .log-toolbar { align-items:flex-start; flex-wrap:wrap; }
-    .connection-row{display:grid;grid-template-columns:minmax(0,1fr) auto}.connection-row .btn{grid-column:1/-1}.connection-row .connection-key-action{grid-column:auto}.metric-card{padding:14px!important}.metric-card .val{font-size:22px}.metric-icon{margin-bottom:8px}.params-section-head{align-items:flex-start!important}.params-section-head>span.text-xs{display:none}.toast{bottom:82px;max-width:calc(100vw - 24px);text-align:center}
+    .connection-row{display:grid;grid-template-columns:minmax(0,1fr) auto}.connection-row .btn{grid-column:1/-1}.connection-row .connection-key-action{grid-column:auto}.metric-card{padding:14px!important}.metric-card .val{font-size:22px}.metric-icon{margin-bottom:8px}.params-section-head{align-items:flex-start!important}.params-section-head>span.text-xs{display:none}.settings-actions{align-items:stretch;flex-direction:column}.settings-actions .btn{width:100%}.model-scope-select{min-width:0!important;max-width:100%}.toast{bottom:82px;max-width:calc(100vw - 24px);text-align:center}
   }
 </style>
 </head>
@@ -434,18 +425,19 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <button type="button" class="tab active" role="tab" aria-selected="true" aria-controls="view-overview" data-tab="overview" onclick="switchTab('overview')"><span class="tab-icon">⌂</span><span>数据概览</span></button>
     <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="view-channel" data-tab="channel" onclick="switchTab('channel')"><span class="tab-icon">⚿</span><span>通道与凭证</span></button>
     <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="view-params" data-tab="params" onclick="switchTab('params')"><span class="tab-icon">◫</span><span>模型参数</span></button>
+    <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="view-settings" data-tab="settings" onclick="switchTab('settings')"><span class="tab-icon">⚙</span><span>全局设置</span></button>
     <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="view-logs" data-tab="logs" onclick="switchTab('logs')"><span class="tab-icon">⌁</span><span>运行日志</span></button>
   </nav>
   <main class="content-area">
-    <div class="page-heading"><div><h2 id="page-title">数据概览</h2><p id="page-subtitle">连接客户端，查看服务状态与实时用量</p></div><span class="pill">本地工作台</span></div>
+    <div class="page-heading"><div><h2 id="page-title">数据概览</h2><p id="page-subtitle">连接信息与实时用量</p></div><span class="pill">本地工作台</span></div>
 
   <!-- Overview -->
   <section id="view-overview">
     <div id="connection-card" class="card connection-card p-5 mb-4">
       <div class="connection-heading mb-4">
-        <div><h2 class="text-base font-semibold">客户端连接信息</h2><p class="text-xs text-neutral-500 mt-1">在聊天客户端中选择 OpenAI 兼容接口，填入下面两项即可。</p></div>
-        <span class="pill pill-accent">随时复制，无需记忆</span>
+        <h2 class="text-base font-semibold">客户端连接信息<button type="button" class="helpq" aria-label="查看客户端连接说明" aria-expanded="false" aria-controls="h_connection" onclick="hlp(this,'h_connection')">!</button></h2>
       </div>
+      <div id="h_connection" class="helpbox mb-3">在聊天客户端选择 OpenAI 兼容接口，填入下方地址和密钥。这份密钥用于连接本服务；Google Key 在「通道与凭证」中管理。</div>
       <div class="mb-3">
         <label for="client-api-url" class="lbl block mb-1.5">API 地址 · Base URL</label>
         <div class="connection-row"><input id="client-api-url" class="inp log" readonly spellcheck="false"><button class="btn-ghost" onclick="copyConnectionField('client-api-url',this)">复制地址</button></div>
@@ -454,23 +446,30 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <label for="client-api-key" class="lbl block mb-1.5">API 密钥 · API Key</label>
         <div class="connection-row"><input id="client-api-key" class="inp log" type="password" readonly autocomplete="off" placeholder="正在加载…" spellcheck="false"><button id="client-key-toggle" class="btn-ghost connection-key-action" aria-label="显示 API 密钥" aria-pressed="false" onclick="toggleClientKey()" disabled>显示</button><button class="btn connection-key-action" onclick="copyConnectionField('client-api-key',this)" disabled>复制密钥</button></div>
       </div>
-      <p class="text-xs text-neutral-500 mt-3">这份密钥用于连接本服务。Google Key 在「通道与凭证」中管理。</p>
       <p id="connection-status" class="status-note mt-2" role="status" aria-live="polite"></p>
     </div>
 	    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
 	      <div class="card metric-card p-4" style="--metric-tint:#eff6ff"><div class="metric-icon">↗</div><div class="lbl">总请求</div><div id="s-total" class="val text-2xl font-bold mt-1">0</div></div>
 	      <div class="card metric-card p-4" style="--metric-tint:#ecfdf3"><div class="metric-icon">✓</div><div class="lbl">成功响应</div><div id="s-success" class="val text-2xl font-bold mt-1 text-emerald-600">0</div></div>
 	      <div class="card metric-card p-4" style="--metric-tint:#fffaeb"><div class="metric-icon">↻</div><div class="lbl">拥堵重试</div><div id="s-retries" class="val text-2xl font-bold mt-1 text-amber-500">0</div></div>
-	      <div class="card metric-card p-4" style="--metric-tint:#fff1f3"><div class="metric-icon">!</div><div class="lbl">错误 / 拦截</div><div id="s-error" class="val text-2xl font-bold mt-1 text-rose-600">0</div></div>
+		      <div class="card metric-card p-4" style="--metric-tint:#fff1f3"><button type="button" class="metric-icon" aria-label="查看失败详情" aria-expanded="false" aria-controls="h_request_errors" onclick="hlp(this,'h_request_errors')">!</button><div class="lbl">失败 / 拦截</div><div id="s-error" class="val text-2xl font-bold mt-1 text-rose-600">0</div></div>
+    </div>
+    <p id="request-progress" class="status-note mb-3 hidden"></p>
+    <div id="h_request_errors" class="helpbox mb-4">
+      <div class="text-sm font-semibold mb-2">失败详情</div>
+      <div id="error-breakdown" class="flex flex-wrap gap-2">暂无失败记录</div>
+      <div id="recent-errors" class="mt-3 space-y-2"></div>
+      <p class="mt-3">统计范围为本次服务启动以来的聊天请求；最近保留 20 条失败记录。</p>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
       <div class="card p-5 flex flex-col items-center justify-center">
-	        <div class="lbl w-full mb-1">请求成功率</div>
-	        <p class="text-xs text-neutral-400 w-full mb-3">按成功 /（成功 + 错误）计算</p>
+		        <div class="lbl w-full mb-3">请求成功率<button type="button" class="helpq" aria-label="查看成功率说明" aria-expanded="false" aria-controls="h_health" onclick="hlp(this,'h_health')">!</button></div>
+			        <div id="h_health" class="helpbox w-full mb-3">按“成功 ÷（成功 + 失败）”计算，以响应完整发送为准。进行中和已取消的连接不计入成功率；重试单独计数。统计在服务重启后清零。</div>
 	        <div id="donut" class="health-donut empty" role="img" aria-label="暂无请求"><div class="health-donut-center"><strong id="health-rate">—</strong><span id="health-label">暂无请求</span></div></div>
       </div>
       <div class="card p-5 md:col-span-2">
-        <div class="lbl mb-4">Token 算力消耗 <span class="text-neutral-400" style="text-transform:none;font-weight:400">· 仅标准 Express 通道计入（Cookie 直连接口不回传用量）</span></div>
+	        <div class="lbl mb-4">Token 算力消耗<button type="button" class="helpq" aria-label="查看 Token 统计说明" aria-expanded="false" aria-controls="h_token" onclick="hlp(this,'h_token')">!</button></div>
+	        <div id="h_token" class="helpbox mb-4">仅标准 Express 通道计入；Cookie 直连接口不回传用量。</div>
         <div class="space-y-4">
 	          <div><div class="flex justify-between text-sm mb-1"><span class="text-neutral-600">Prompt（输入）</span><span id="t-prompt" class="val font-semibold">0</span></div><div class="token-track"><div id="token-prompt-bar" class="token-bar bg-blue-600"></div></div></div>
 	          <div><div class="flex justify-between text-sm mb-1"><span class="text-neutral-600">Completion（输出）</span><span id="t-comp" class="val font-semibold">0</span></div><div class="token-track"><div id="token-comp-bar" class="token-bar bg-sky-400"></div></div></div>
@@ -483,15 +482,16 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   <!-- Channel -->
   <section id="view-channel" class="hidden">
     <div class="card p-5 mb-4">
-      <div class="lbl mb-3">上游调用通道</div>
+      <div class="lbl mb-3">上游调用通道<button type="button" class="helpq" aria-label="查看通道说明" aria-expanded="false" aria-controls="h_channel" onclick="hlp(this,'h_channel')">!</button></div>
+      <div id="h_channel" class="helpbox mb-3">标准通道使用 Google Express API Key；Cookie 通道使用 Google Cloud 控制台的登录 Cookie。选择后立即切换。</div>
       <div class="flex flex-col sm:flex-row gap-3">
         <label class="flex-1 border border-neutral-200 rounded-lg p-3 cursor-pointer flex items-start gap-3 hover:bg-neutral-50" id="opt-api">
           <input type="radio" name="mode" value="api_key" class="mt-1" onchange="updateMode('api_key')">
-          <div><div class="font-medium text-sm">Express API Key（标准）</div><div class="text-xs text-neutral-500 mt-0.5">用 VERTEX_EXPRESS_API_KEY 调官方 SDK</div></div>
+          <div class="font-medium text-sm">Express API Key（标准）</div>
         </label>
         <label class="flex-1 border border-neutral-200 rounded-lg p-3 cursor-pointer flex items-start gap-3 hover:bg-neutral-50" id="opt-web">
           <input type="radio" name="mode" value="web_proxy" class="mt-1" onchange="updateMode('web_proxy')">
-          <div><div class="font-medium text-sm">Cookie 直连反代</div><div class="text-xs text-neutral-500 mt-0.5">用控制台 Cookie 调 batchGraphql</div></div>
+          <div class="font-medium text-sm">Cookie 直连</div>
         </label>
       </div>
     </div>
@@ -499,8 +499,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <div class="card p-5 mb-4">
       <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
         <div>
-          <div class="text-sm font-semibold">Express API Key 列表<span class="helpq" onclick="hlp(this,'h_keys')">?</span></div>
-          <div class="text-xs text-neutral-500 mt-0.5">多个谷歌账号的 Key 可一起放这里，按「多 Key 轮询」开关随机或轮询使用</div>
+          <div class="text-sm font-semibold">Express API Key 列表<button type="button" class="helpq" aria-label="查看 Key 列表说明" aria-expanded="false" aria-controls="h_keys" onclick="hlp(this,'h_keys')">!</button></div>
         </div>
         <div class="toolbar flex items-center gap-2">
           <span id="keys-count" class="pill" style="text-transform:none">0 个</span>
@@ -510,18 +509,19 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         </div>
       </div>
       <div id="h_keys" class="helpbox">
+        可添加多个 Google 账号的 Key；轮询方式在「全局设置」中调整。<br>
         <b>热编辑</b>：增删改后点「保存 Key 列表」立即生效，<b>不需要重启服务</b>。列表存在 <code>web_state.json</code>（文件权限 0600）。<br>
         <b>Project ID</b>：每个 Key 属于不同的谷歌账号/项目，标准模式的 location 钉定会用<b>这个 Key 自己的项目</b>拼资源路径 <code>projects/{project}/locations/{location}/...</code>，不再共用 Cookie 通道那份全局 Project ID。<br>
         启动时自动探测填入（用不存在的模型名调一次 generateContent，从上游 404 错误信息里解析项目，不消耗配额；来源显示 <code>auto</code>）；也可点每行的「探测」单独重探，或直接手填（来源变 <code>manual</code>，探测不会覆盖手填值）。<br>
         探测失败不影响调用：拿不到项目就退回全局 Project ID，再退回裸模型名（旧行为）。<br>
         <b>环境变量</b> <code>VERTEX_EXPRESS_API_KEY</code> 只在<b>首次启动</b>时一次性导入这里；此后以本列表为准——<b>把列表清空并保存后，重启也不会被环境变量复种</b>。<br>
-        <b>明文显示</b>：本列表按需要明文展示 Key（控制台本身有密码保护）；运行日志里只打掩码。
+        <b>明文显示</b>：本列表展示完整 Key；运行日志里只显示掩码。
       </div>
       <div id="keys-list" class="space-y-2"></div>
       <p id="keys-empty" class="text-xs text-neutral-500 mt-2 hidden">当前没有任何 Express Key。点「＋ 添加 Key」粘贴一个，再点「保存 Key 列表」。</p>
       <div id="setup-guide" class="setup-callout mt-3 hidden">
         <div class="text-sm font-semibold text-indigo-950">先添加一个 Express API Key</div>
-        <p class="text-xs text-indigo-800 mt-1 leading-relaxed">这里填写 Google 提供的 Express Key。配置好上游后，点击顶部「接入信息」复制聊天客户端需要的地址和本服务密钥。</p>
+        <p class="text-xs text-indigo-800 mt-1">添加 Google Key 并保存，即可开始使用。</p>
         <div class="flex gap-2 mt-3 flex-wrap">
           <label for="api-address" class="sr-only">OpenAI 兼容 API 地址</label>
           <input id="api-address" class="inp log" readonly style="flex:1;min-width:210px">
@@ -532,16 +532,15 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     </div>
 
     <div id="cookie-box" class="card p-5 hidden">
-	      <label class="lbl mb-2 block" for="cookie-input">Google Cookie（含 HttpOnly 字段）</label>
-      <textarea id="cookie-input" rows="3" class="inp log mb-3" placeholder="粘贴 console.cloud.google.com 的完整 Cookie（支持 Cookie-Editor 导出的 JSON / Header String，自动解析）"></textarea>
+		      <div class="mb-2"><label class="lbl" for="cookie-input">Google Cookie</label><button type="button" class="helpq" aria-label="查看 Cookie 配置说明" aria-expanded="false" aria-controls="h_cookie_life" onclick="hlp(this,'h_cookie_life')">!</button></div>
+      <div id="h_cookie_life" class="helpbox mb-3">粘贴 console.cloud.google.com 的完整 Cookie，包含 HttpOnly 字段。支持 Cookie-Editor 导出的 JSON 和 Cookie 请求头；保存时自动检查 SAPISID。Cookie 有效期取决于账号会话，权限失效后重新获取即可。</div>
+      <textarea id="cookie-input" rows="3" class="inp log mb-3" placeholder="粘贴完整 Cookie 或 Cookie-Editor 导出的 JSON"></textarea>
 	      <label class="lbl mb-2 block" for="project-input">Google Cloud Project ID</label>
       <input id="project-input" class="inp mb-3" placeholder="可直接粘贴含 ?project=xxx 的整条 URL，自动提取">
 	      <div class="cookie-save-row flex items-center justify-between gap-3">
-        <span class="text-xs text-neutral-500">保存后自动校验是否包含 SAPISID</span>
 	        <button id="btn-save-cookie" class="btn px-4 py-2 text-sm" onclick="saveCookie(this)">保存并激活</button>
       </div>
 	      <div id="cookie-dirty" class="status-note mt-2" aria-live="polite"></div>
-      <p class="text-xs text-neutral-500 mt-3 leading-relaxed">💡 Cookie 通常较为持久（可维持数周甚至更久，取决于账号会话是否有效）；仅当出现 Permission Denied 等权限错误时再重新获取粘贴即可，并非只有 1–2 小时。</p>
     </div>
   </section>
 
@@ -550,15 +549,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <div class="card p-5 mb-4">
       <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <div class="lbl mb-1">选择模型 <span id="ov-badge" class="pill pill-accent hidden" style="text-transform:none">已有专属参数</span></div>
-	          <select id="model-sel" class="inp" style="min-width:240px" onchange="changeModelScope()"></select>
+          <div class="lbl mb-1">选择模型 <span id="ov-badge" class="pill pill-accent hidden" style="text-transform:none">已有专属参数</span><button type="button" class="helpq" aria-label="查看模型编辑范围说明" aria-expanded="false" aria-controls="h_model_scope" onclick="hlp(this,'h_model_scope')">!</button></div>
+		          <select id="model-sel" class="inp model-scope-select" style="min-width:240px" onchange="changeModelScope()"></select>
         </div>
         <div id="caps-summary" class="text-xs text-neutral-600 flex flex-wrap gap-2 max-w-xl"></div>
       </div>
-      <p class="text-xs text-neutral-500 mt-3 leading-relaxed">上面的下拉框选择<b>编辑对象</b>：选「＊ 全局默认」就是在改所有模型的默认值；选某个具体模型，就是在改<b>那个模型</b>的专属值（保存后模型名后出现 ★）。切换下拉框时，下面 ① 区的字段会跟着换成对应对象的值。<br>
-      <b>① 按模型参数</b>（思考 / 生图 / 采样 / 注入与续写）跟随上面的下拉框，用本卡片的按钮保存。<br>
-      <b>② 全局设置</b>（图压缩 / 重试 / 假流式 / 调试开关）只有全局一份，用页面底部的「保存全局设置」保存，<b>不会</b>动到 ① 区的任何内容。<br>
-      优先级：<b>单次请求 &gt; 模型专属 &gt; 全局默认 &gt; 内置</b>，最后仍按模型能力自动裁剪。</p>
+      <div id="h_model_scope" class="helpbox">选择「＊ 全局默认」可设置所有模型的默认值；选择具体模型可保存该模型专属值，保存后模型名会出现 ★。优先级为：<b>单次请求 &gt; 模型专属 &gt; 全局默认 &gt; 内置</b>，最终仍按模型能力自动裁剪。重试、弱网续传等服务级选项请到独立的「全局设置」页面。</div>
       <div class="flex items-center gap-2 mt-3 flex-wrap">
 	        <button id="btn-scope-save" class="btn px-4 py-2 text-sm" onclick="saveModelOverride(this)">💾 保存为该模型专属</button>
 	        <button id="btn-scope-clear" class="btn-ghost px-4 py-2 text-sm" onclick="clearModelOverride(this)">清除该模型专属</button>
@@ -568,8 +564,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     </div>
 
 	    <div class="params-section-head flex items-center gap-2 mb-2 mt-5">
-      <span class="pill pill-accent" style="text-transform:none">① 按模型参数</span>
-      <span class="text-xs text-neutral-500">下面这些卡片的内容，属于上方下拉框选中的那个对象（全局默认 / 某个模型），用上方的保存按钮写入。</span>
+	      <span class="pill pill-accent" style="text-transform:none">模型生成参数</span>
         <button class="section-toggle ml-auto" type="button" aria-expanded="true" onclick="toggleParamGroup('model-settings-grid',this)"><span class="toggle-arrow">⌄</span>收起</button>
     </div>
 
@@ -583,13 +578,13 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         </div>
         <p id="think-note" class="text-xs text-neutral-500 mt-2"></p>
         <div class="mt-3 pt-3 border-t border-neutral-100">
-          <div class="lbl mb-1">原生思考控制（native_thinking_mode）</div>
+          <div class="lbl mb-1">原生思考控制<button type="button" class="helpq" aria-label="查看原生思考控制说明" aria-expanded="false" aria-controls="h_native_thinking" onclick="hlp(this,'h_native_thinking')">!</button></div>
           <select id="native_thinking_mode" class="inp">
             <option value="request">跟随请求（默认）</option>
             <option value="off">关闭原生思考（角色扮演推荐）</option>
             <option value="console">强制用上方档位（忽略前端）</option>
           </select>
-          <p class="text-xs text-neutral-500 mt-2 leading-relaxed">🎭 <b>跑角色扮演预设、想让预设自带的思维链接管时，选“关闭原生思考”。</b>只想对某个模型这么设，就用上方的“保存为该模型专属”。<br>• <b>跟随请求</b>：用前端发来的 <code>reasoning_effort</code>；SillyTavern 等常发 <code>xhigh</code> → 高强度原生思考。<br>• <b>关闭原生思考</b>：忽略前端参数，把档位压到<span id="ntm-floor">该模型最低档</span>，并<b>不返回思考</b>。⚠️ 实测 Studio(batchGraphql) 会忽略 includeThoughts，故本项在压档位的同时于响应侧<b>剥离思考块</b>——重预设下这是避免“只有思考、没有正文”的关键。<br>• <b>强制用上方档位</b>：忽略前端，用你在上面选的档位（返回思考）。<br>（预填充预设另见“开关 &amp; 预填充”卡片的压制开关。）</p>
+          <div id="h_native_thinking" class="helpbox"><b>跟随请求</b>：使用前端发来的 <code>reasoning_effort</code>。<br><b>关闭原生思考</b>：忽略前端参数，压到<span id="ntm-floor">该模型最低档</span>并从响应中移除思考块，适合让角色扮演预设接管思维链。<br><b>强制用上方档位</b>：忽略前端并使用你选的档位，同时返回原生思考。只想改变一个模型时，请保存为该模型专属。</div>
         </div>
       </div>
 
@@ -606,13 +601,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         </div>
         <p id="image-note" class="text-xs text-neutral-500 mt-2"></p>
         <div class="space-y-3 mt-3 pt-3 border-t border-neutral-100">
-          <div class="text-xs text-neutral-400">以下两项仅对生图模型有意义，可按模型专属保存</div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">生图下发 system 指令<span class="helpq" onclick="hlp(this,'h_isi')">?</span></span><label class="switch"><input type="checkbox" id="image_system_instruction"><span class="slider"></span></label></div>
+            <div class="flex items-center justify-between"><span class="text-sm">生图下发 system 指令<button type="button" class="helpq" aria-label="查看生图 system 指令说明" aria-expanded="false" aria-controls="h_isi" onclick="hlp(this,'h_isi')">!</button></span><label class="switch"><input type="checkbox" id="image_system_instruction"><span class="slider"></span></label></div>
             <div id="h_isi" class="helpbox">关闭时（默认）生图模型会<b>丢弃 system 提示词</b>——你写的画风、构图要求全部不生效。开启后 system 会随生图请求一起下发。<br>实测对照（system=“纯黑白线稿，只有线条”，user=“画一只猫”）：<b>关 → 彩色写实照片；开 → 黑白线稿</b>。默认关只是为了不改变旧行为，<b>用生图建议打开</b>。</div>
           </div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">生图也注入预填充<span class="helpq" onclick="hlp(this,'h_ipf')">?</span></span><label class="switch"><input type="checkbox" id="inject_prefill_for_image"><span class="slider"></span></label></div>
+            <div class="flex items-center justify-between"><span class="text-sm">生图也注入预填充<button type="button" class="helpq" aria-label="查看生图预填充说明" aria-expanded="false" aria-controls="h_ipf" onclick="hlp(this,'h_ipf')">!</button></span><label class="switch"><input type="checkbox" id="inject_prefill_for_image"><span class="slider"></span></label></div>
             <div id="h_ipf" class="helpbox">默认关：下面“注入预填充”的内容<b>不会</b>发给生图模型。<br>预填充对生图其实有<b>很强的引导力</b>——实测同一句“画一只猫”，预填充承诺“纯黑白钢笔线稿”就真的输出线稿，不加则是彩色写实照片。想用它引导画风或做破限，就打开。<br><b>注意</b>：角色扮演用的预填充（例如思考块开标签）落到生图请求上，可能让模型改吐一段文字而不出图。建议配合“保存为该模型专属”，给生图模型单独配一段合适的预填充。<br>生图模型会自动改用一句<b>要图片</b>的续写指令（否则模型会把“继续往下写”理解成继续写文字，实测会吐字符画）；若你在下面自定义了“续写指令模板”，则以你的为准——生图用时记得写明“直接输出图片”。</div>
           </div>
         </div>
@@ -620,14 +614,15 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 
       <!-- 采样默认 -->
       <div class="card p-5">
-        <div class="text-sm font-semibold mb-3">采样默认值 <span class="text-xs font-normal text-neutral-400">（留空=不注入，交给模型默认）</span></div>
+        <div class="text-sm font-semibold mb-3">采样默认值<button type="button" class="helpq" aria-label="查看采样默认值说明" aria-expanded="false" aria-controls="h_sampling_defaults" onclick="hlp(this,'h_sampling_defaults')">!</button></div>
+        <div id="h_sampling_defaults" class="helpbox mb-3">留空表示不注入该参数，使用模型默认值。</div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div><div class="lbl mb-1.5">temperature</div><input id="default_temperature" type="number" step="0.1" class="inp" placeholder="—"></div>
           <div><div class="lbl mb-1.5">top_p</div><input id="default_top_p" type="number" step="0.05" class="inp" placeholder="—"></div>
           <div><div class="lbl mb-1.5">max_tokens</div><input id="default_max_tokens" type="number" class="inp" placeholder="—"></div>
         </div>
         <div class="flex items-center justify-between gap-3 mt-5 pt-4 border-t border-neutral-100">
-          <span class="text-sm">采样参数处理<span class="helpq" onclick="hlp(this,'h_sp')">?</span></span>
+          <span class="text-sm">采样参数处理<button type="button" class="helpq" aria-label="查看采样参数处理说明" aria-expanded="false" aria-controls="h_sp" onclick="hlp(this,'h_sp')">!</button></span>
           <select id="sampling_policy" class="inp" style="max-width:170px"><option value="auto">自动判定</option><option value="deprecated">强制剥离</option><option value="allowed">强制保留</option></select>
         </div>
         <div id="h_sp" class="helpbox">决定是否把 <code>temperature / top_p / top_k</code> 发给模型。<br>
@@ -639,46 +634,63 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 
       <!-- 控制台注入（可按模型覆盖） -->
       <div class="card p-5">
-        <div class="text-sm font-semibold mb-3">注入与续写 <span class="text-xs font-normal text-neutral-400">（留空＝不启用 / 用内置默认；均支持按模型专属）</span></div>
+        <div class="text-sm font-semibold mb-3">注入与续写<button type="button" class="helpq" aria-label="查看注入与续写说明" aria-expanded="false" aria-controls="h_injection_scope" onclick="hlp(this,'h_injection_scope')">!</button></div>
+        <div id="h_injection_scope" class="helpbox mb-3">留空时不注入内容，续写指令使用内置默认。可为不同模型分别保存。</div>
         <div class="space-y-3">
 
           <div>
-            <div class="lbl mb-1">附加 system 指令<span class="helpq" onclick="hlp(this,'h_injs')">?</span></div>
+            <div class="lbl mb-1">附加 system 指令<button type="button" class="helpq" aria-label="查看附加 system 指令说明" aria-expanded="false" aria-controls="h_injs" onclick="hlp(this,'h_injs')">!</button></div>
             <textarea id="inject_system_instruction" rows="2" class="inp log" placeholder="留空 = 不注入"></textarea>
             <div id="h_injs" class="helpbox">追加到客户端 system 之<b>后</b>，两条通道都生效。<br>给 <b>RikkaHub 这类轻量前端</b>用：它们没有酒馆的预设系统，每开一个新对话都要重设系统提示。填在这里就是<b>所有前端、所有对话通用</b>。<br><b>酒馆用户请留空</b>——预设已经管了 system，这里再加会和预设打架，而且 <code>{{getvar::xx}}</code> 这类宏在代理侧<b>不会被解析</b>。</div>
           </div>
           <div>
-            <div class="lbl mb-1">注入预填充<span class="helpq" onclick="hlp(this,'h_injp')">?</span></div>
+            <div class="lbl mb-1">注入预填充<button type="button" class="helpq" aria-label="查看注入预填充说明" aria-expanded="false" aria-controls="h_injp" onclick="hlp(this,'h_injp')">!</button></div>
             <textarea id="inject_prefill" rows="2" class="inp log" placeholder="留空 = 不注入"></textarea>
             <div id="h_injp" class="helpbox">
-              客户端<b>没有发送</b>预填充时，代理自动补一条 assistant 消息，然后按上面的“预填充兼容模式”处理。<br>
+              客户端<b>没有发送</b>预填充时，代理自动补一条 assistant 消息，然后按「全局设置」里的“预填充兼容模式”处理。<br>
               轻量前端<b>从不发送预填充</b>，等于完全用不上破限最强的那个杠杆，连“预填充时压制原生思考”也永远不会触发（3.6-flash 上更容易出现“只有思考没正文”）。填在这里就能补上。<br>
               内容通常很短：一句开场白 + 思考块的开标签即可，别塞大段规则（规则请放上面的 system 框）。<br>
               <b>四条护栏，避免和现有功能冲突</b>：① 客户端已自带预填充（酒馆）→ 跳过，不覆盖；② 请求带函数调用 → 跳过；③ 生图模型 → 默认跳过（可用上面的“生图也注入预填充”放行）；④ 留空 → 完全不启用。<br>
-              <b>只填内容还不够</b>：填完必须点保存——点“保存全局设置”＝对所有模型生效；点上方“保存为该模型专属”＝只对当前所选模型生效。（生图模型还需额外打开上面的“生图也注入预填充”开关，那个开关只是放行，内容仍取自这里。）<br>强烈建议按模型分开配：生图要的是画风描述，角色扮演要的是思考块开标签，两者内容完全不同；问答用的模型则应留空（否则每条回复开头都会多出这段文字，原生思考也会被压制、影响答题深度）。
+              填完后请用本页上方按钮保存：选择「＊ 全局默认」时保存为所有模型的默认值；选择具体模型时保存为该模型专属。生图模型还需打开“生图也注入预填充”。建议按模型分别配置：生图使用画风描述，角色扮演使用思考块开标签，普通问答模型通常留空。
             </div>
           </div>
           <div>
-            <div class="lbl mb-1">续写指令模板<span class="helpq" onclick="hlp(this,'h_pfi')">?</span></div>
+            <div class="lbl mb-1">续写指令模板<button type="button" class="helpq" aria-label="查看续写指令模板说明" aria-expanded="false" aria-controls="h_pfi" onclick="hlp(this,'h_pfi')">!</button></div>
             <textarea id="prefill_instruction" rows="2" class="inp log" placeholder="留空 = 使用内置默认"></textarea>
             <div id="h_pfi" class="helpbox">留空即用内置默认，一般不用改。<br><b>「智能」模式</b>下它是那句续写指令，预填充文本会附在它后面；<b>「保留模型轮次」模式</b>下它就是末尾那句推动语。<br>若「保留模型轮次」老是重复开标签，可以把这里改得更短更像催促（例如只填 <code>继续</code>），减少“新一轮”的暗示。<br><b>与生图的关系</b>：留空时，生图模型会自动换用一句“直接输出图片”的指令；<b>一旦你在这里填了内容，生图模型也会用你填的这句</b>——若那句写的是“接着往下写”，生图会吐字符画而不是图片。所以给生图模型请用<b>“保存为该模型专属”</b>单独配一句（例如“直接输出图片，不要任何文字”），别让文本模型的模板串过去。</div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between gap-3"><span class="text-sm">思维链守卫<button type="button" class="helpq" aria-label="查看思维链守卫说明" aria-expanded="false" aria-controls="h_cotg" onclick="hlp(this,'h_cotg')">!</button></span><label class="switch"><input type="checkbox" id="prefill_cot_guard"><span class="slider"></span></label></div>
+            <div id="h_cotg" class="helpbox">检测到预填充中未闭合的思考标签时，要求模型先完成标签内的思考并闭合，再输出正文。普通预填充和生图模型不受影响。若仍会跳过思考，可尝试把原生思考控制改为“强制用上方档位”，并选择 low。</div>
           </div>
         </div>
       </div>
 
     </div>
 
-	    <div class="params-section-head flex items-center gap-2 mb-2 mt-6">
-      <span class="pill" style="text-transform:none;background:#f1f1f5;color:#52525b">② 全局设置</span>
-      <span class="text-xs text-neutral-500">对所有模型统一生效，<b>不支持</b>按模型专属；改动后点页面底部「保存全局设置」，它只保存本区、不影响 ① 区。</span>
-        <button class="section-toggle ml-auto" type="button" aria-expanded="false" onclick="toggleParamGroup('global-settings-wrap',this)"><span class="toggle-arrow">⌄</span>展开</button>
-    </div>
+	  </section>
 
-      <div id="global-settings-wrap" class="hidden">
+  <!-- Global settings -->
+  <section id="view-settings" class="hidden">
+    <div class="card settings-primary p-5 mb-4">
+      <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
+        <div><div class="text-base font-semibold">重试与退避<button type="button" class="helpq" aria-label="查看重试设置说明" aria-expanded="false" aria-controls="h_retry" onclick="hlp(this,'h_retry')">!</button></div><div class="text-xs text-neutral-500 mt-1">上游繁忙时自动重试</div></div>
+        <span class="pill pill-accent">常用设置</span>
+      </div>
+      <div id="h_retry" class="helpbox mb-4">重试次数是<b>首次请求失败后的额外尝试次数</b>，范围 0–50，不包含首次请求。退避间隔范围 0–120 秒，仅对可重试错误生效。</div>
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div><label class="lbl mb-1 block" for="retry_max">失败后重试次数</label><input id="retry_max" type="number" min="0" max="50" step="1" class="inp"></div>
+        <div><label class="lbl mb-1 block" for="retry_backoff_seconds">重试间隔（秒）</label><input id="retry_backoff_seconds" type="number" min="0" max="120" step="0.5" class="inp"></div>
+      </div>
+      <div class="settings-actions pt-4 border-t border-blue-100">
+        <span id="settings-dirty" class="status-note" aria-live="polite"></span>
+        <button id="btn-save-settings" class="btn px-5 py-2.5 text-sm" onclick="saveSettings(this)">保存全局设置</button>
+      </div>
+    </div>
 	    <div class="grid md:grid-cols-2 gap-4">
       <div class="card p-5">
             <div class="flex items-center justify-between gap-3">
-              <span class="text-sm">标准模式 location<span class="helpq" onclick="hlp(this,'h_loc')">?</span></span>
+              <span class="text-sm">标准模式 location<button type="button" class="helpq" aria-label="查看请求区域说明" aria-expanded="false" aria-controls="h_loc" onclick="hlp(this,'h_loc')">!</button></span>
               <select id="express_location" class="inp" style="max-width:180px">
             <option value="global">global（默认·推荐）</option>
             <option value="">默认（后端自选·旧行为）</option>
@@ -745,15 +757,6 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         </div>
       </div>
 
-      <!-- 重试 -->
-      <div class="card p-5">
-        <div class="text-sm font-semibold mb-3">重试与退避</div>
-        <div class="grid grid-cols-2 gap-3">
-          <div><div class="lbl mb-1">最大重试次数</div><input id="retry_max" type="number" class="inp"></div>
-          <div><div class="lbl mb-1">退避间隔(秒)</div><input id="retry_backoff_seconds" type="number" step="0.5" class="inp"></div>
-        </div>
-      </div>
-
       <!-- 开关 -->
       <div class="card p-5">
         <div class="text-sm font-semibold mb-3">开关 & 预填充</div>
@@ -761,38 +764,30 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
           <div class="flex items-center justify-between"><span class="text-sm">假流式（fake streaming）</span><label class="switch"><input type="checkbox" id="fake_streaming"><span class="slider"></span></label></div>
           <div class="flex items-center justify-between"><span class="text-sm">假流式心跳间隔(秒)</span><input id="fake_streaming_interval" type="number" step="0.5" class="inp" style="width:90px"></div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">弱网续传（服务端缓冲）<span class="helpq" onclick="hlp(this,'h_rsm')">?</span></span><label class="switch"><input type="checkbox" id="resumable_enabled"><span class="slider"></span></label></div>
-            <div id="h_rsm" class="helpbox">反代收到 Google 的完整回复后先放进服务端缓冲区再吐给前端；前端断线可凭 <code>Last-Event-ID</code> 或 <code>?resume_from=</code> 续传，也可轮询 <code>/v1/resumable/{id}</code> 拉分片。关掉则回到原有直通行为。</div>
+            <div class="flex items-center justify-between"><span class="text-sm">弱网续传（服务端缓冲）<button type="button" class="helpq" aria-label="查看弱网续传说明" aria-expanded="false" aria-controls="h_rsm" onclick="hlp(this,'h_rsm')">!</button></span><label class="switch"><input type="checkbox" id="resumable_enabled"><span class="slider"></span></label></div>
+            <div id="h_rsm" class="helpbox">上游回复边生成边写入缓冲并发送给客户端，等待期间会持续发送保活心跳。支持续传的客户端可在断线后凭 <code>Last-Event-ID</code> 或 <code>?resume_from=</code> 接着读取；也可轮询 <code>/v1/resumable/{id}</code>。关闭后直接转发。</div>
           </div>
           <div class="flex items-center justify-between"><span class="text-sm">续传缓冲保留时长(秒)</span><input id="resumable_ttl_seconds" type="number" step="60" class="inp" style="width:90px"></div>
           <div class="flex items-center justify-between"><span class="text-sm">续传缓冲数量上限</span><input id="resumable_max_streams" type="number" step="10" class="inp" style="width:90px"></div>
           <div class="flex items-center justify-between"><span class="text-sm">多 Key 轮询（round-robin）</span><label class="switch"><input type="checkbox" id="roundrobin"><span class="slider"></span></label></div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">输出附加安全分<span class="helpq" onclick="hlp(this,'h_ss')">?</span></span><label class="switch"><input type="checkbox" id="safety_score"><span class="slider"></span></label></div>
+            <div class="flex items-center justify-between"><span class="text-sm">输出附加安全分<button type="button" class="helpq" aria-label="查看安全分说明" aria-expanded="false" aria-controls="h_ss" onclick="hlp(this,'h_ss')">!</button></span><label class="switch"><input type="checkbox" id="safety_score"><span class="slider"></span></label></div>
             <div id="h_ss" class="helpbox">在每条回复<b>正文末尾</b>附一个可折叠块，列出该回复各安全分类的概率与严重度评分（Hate Speech / Dangerous Content / Sexually Explicit / Harassment / Jailbreak）。用来判断内容离触发拦截还有多远。<br>前端若不渲染 HTML，会看到一段 <code>&lt;details&gt;</code> 原文，属正常。<br><b>Cookie 通道注意</b>：该通道平时下发 <code>OFF</code>（分类器整个关闭、上游不回传评分）。打开本开关后会改为下发 <code>BLOCK_NONE</code>——仍然<b>永不拦截</b>，只是让上游把评分算出来回传。不需要看评分就关掉，保持 <code>OFF</code>。</div>
           </div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">出站参数调试日志<span class="helpq" onclick="hlp(this,'h_dbg')">?</span></span><label class="switch"><input type="checkbox" id="debug_outbound"><span class="slider"></span></label></div>
+            <div class="flex items-center justify-between"><span class="text-sm">出站参数调试日志<button type="button" class="helpq" aria-label="查看调试日志说明" aria-expanded="false" aria-controls="h_dbg" onclick="hlp(this,'h_dbg')">!</button></span><label class="switch"><input type="checkbox" id="debug_outbound"><span class="slider"></span></label></div>
             <div id="h_dbg" class="helpbox">两条通道都会在运行日志里打印<b>实际发出</b>的思考档位与采样参数。排查“设置没生效”时先开这个——日志里看到什么，模型就收到了什么。平时可关。</div>
           </div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">Cookie 通道额外诊断<span class="helpq" onclick="hlp(this,'h_ckd')">?</span></span><label class="switch"><input type="checkbox" id="cookie_debug"><span class="slider"></span></label></div>
+            <div class="flex items-center justify-between"><span class="text-sm">Cookie 通道额外诊断<button type="button" class="helpq" aria-label="查看 Cookie 诊断说明" aria-expanded="false" aria-controls="h_ckd" onclick="hlp(this,'h_ckd')">!</button></span><label class="switch"><input type="checkbox" id="cookie_debug"><span class="slider"></span></label></div>
             <div id="h_ckd" class="helpbox">仅对 Cookie 直连通道生效，打印出站 <code>generationConfig</code>。<b>无正文时的原始响应样本总是会自动记录，不需要开这个</b>。</div>
           </div>
 
 
           <div class="pt-1 border-t border-neutral-100"></div>
-          <div class="text-xs font-semibold text-neutral-500 pt-1">预填充</div>
-
-          <div class="flex items-center justify-between gap-3"><span class="text-sm">思维链守卫<span class="helpq" onclick="hlp(this,'h_cotg')">?</span></span><label class="switch"><input type="checkbox" id="prefill_cot_guard"><span class="slider"></span></label></div>
-          <div id="h_cotg" class="helpbox">
-            解决<b>“预设思维链经常不写、直接出正文”</b>：预填充只是把话头停在 <code>&lt;思维链标签&gt;</code> 上，<b>没有任何一句话告诉模型必须先完成思考</b>，模型于是常常跳过思考直接写正文，前端正则就抓不到思维链。<br>
-            打开后，代理会自动识别预填充里<b>未闭合的开标签</b>，在续写指令末尾追加一条硬性要求：先逐条写完该标签内的思考、用对应闭合标签收尾，然后才写正文。<br>
-            没检测到未闭合标签时（例如预填充只是普通句子）本项不做任何事；生图模型不适用。<br>
-            <b>仍不稳定时</b>：把「原生思考控制」从“关闭原生思考”改为“强制用上方档位 + low”再对比——压到 minimal 会让模型倾向“直接给答案”，可能连带跳过预设要求的长思考。
-          </div>
+          <div class="text-xs font-semibold text-neutral-500 pt-1">预填充兼容</div>
           <div>
-            <div class="flex items-center justify-between gap-3"><span class="text-sm">预填充兼容模式<span class="helpq" onclick="hlp(this,'h_pfm')">?</span></span>
+            <div class="flex items-center justify-between gap-3"><span class="text-sm">预填充兼容模式<button type="button" class="helpq" aria-label="查看预填充兼容模式说明" aria-expanded="false" aria-controls="h_pfm" onclick="hlp(this,'h_pfm')">!</button></span>
               <select id="prefill_mode" class="inp" style="width:150px"><option value="smart">智能（默认）</option><option value="keep_turn">保留模型轮次</option><option value="minimal">最小</option><option value="off">关闭</option></select>
             </div>
             <div id="h_pfm" class="helpbox">
@@ -806,7 +801,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
             </div>
           </div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">预填充时压制原生思考<span class="helpq" onclick="hlp(this,'h_pst')">?</span></span><label class="switch"><input type="checkbox" id="prefill_suppress_thinking"><span class="slider"></span></label></div>
+            <div class="flex items-center justify-between"><span class="text-sm">预填充时压制原生思考<button type="button" class="helpq" aria-label="查看预填充思考压制说明" aria-expanded="false" aria-controls="h_pst" onclick="hlp(this,'h_pst')">!</button></span><label class="switch"><input type="checkbox" id="prefill_suppress_thinking"><span class="slider"></span></label></div>
             <div id="h_pst" class="helpbox">检测到预填充时，把模型的<b>原生思维链压到最低并不回传</b>，让预设自带的思维链接管（写作效果通常更好，也避免“只有思考没有正文”）。<br>3.x 压到最低档（无法完全关闭），2.5-flash 预算 0 全关，2.5-pro 降到 128。<br><b>只在请求真的带预填充时才触发</b>；若你的预设把思维链写在 system 里、没有 assistant 条目，请改用上方“思考强度”卡片的“关闭原生思考”。</div>
           </div>
 
@@ -814,11 +809,9 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       </div>
     </div>
 
-    <div class="flex items-center justify-end gap-3 mt-4">
-      <span class="text-xs text-neutral-500">只保存 ② 区（图压缩 / 重试 / 假流式 / 调试开关）；① 区请用上方那个保存按钮</span>
-	      <button id="btn-save-settings" class="btn px-5 py-2.5 text-sm" onclick="saveSettings(this)">保存全局设置</button>
+    <div class="settings-actions mt-4">
+	      <button class="btn px-5 py-2.5 text-sm" onclick="saveSettings(this)">保存全局设置</button>
     </div>
-      </div>
   </section>
 
   <!-- Logs -->
@@ -907,10 +900,11 @@ async function logout(){ try{ await api('/api/logout',{method:'POST'}); }catch(e
 function switchTab(t){
   currentTab=t;
   document.querySelectorAll('.tab').forEach(e=>{ const on=e.dataset.tab===t; e.classList.toggle('active',on); e.setAttribute('aria-selected',String(on)); });
-  ['overview','channel','params','logs'].forEach(v=>$('view-'+v).classList.toggle('hidden', v!==t));
-  const meta={overview:['数据概览','连接客户端，查看服务状态与实时用量'],channel:['通道与凭证','管理 Google 上游凭证并确认每个 Key 的项目'],params:['模型参数','按模型配置生成策略，基础设施设置独立保存'],logs:['运行日志','仅在当前页面打开实时连接，最多保留 1000 条']};
+  ['overview','channel','params','settings','logs'].forEach(v=>$('view-'+v).classList.toggle('hidden', v!==t));
+  const meta={overview:['数据概览','连接信息与实时用量'],channel:['通道与凭证','管理上游通道和 Key'],params:['模型参数','调整各模型的生成方式'],settings:['全局设置','重试、网络与服务级选项'],logs:['运行日志','查看当前服务动态']};
   $('page-title').textContent=meta[t][0]; $('page-subtitle').textContent=meta[t][1];
   if(t==='logs') connectLogs(); else disconnectLogs();
+  window.scrollTo({top:0,behavior:'auto'});
 }
 function toggleParamGroup(id,btn){
   const el=$(id), expanding=el.classList.contains('hidden'); el.classList.toggle('hidden',!expanding);
@@ -930,6 +924,11 @@ async function fetchStats(){
     const d=await api('/api/stats');
     $('s-total').textContent=fmt(d.total); $('s-success').textContent=fmt(d.success);
     $('s-error').textContent=fmt(d.error); $('s-retries').textContent=fmt(d.retries);
+    const progress=[d.in_flight?('进行中 '+fmt(d.in_flight)):'',d.cancelled?('已取消 '+fmt(d.cancelled)):''].filter(Boolean).join(' · ');
+    $('request-progress').textContent=progress; $('request-progress').classList.toggle('hidden',!progress);
+    const labels=d.error_labels||{};
+    $('error-breakdown').innerHTML=Object.entries(d.error_breakdown||{}).map(([key,count])=>`<span class="pill">${esc(labels[key]||key)} ${fmt(count)}</span>`).join('')||'暂无失败记录';
+    $('recent-errors').innerHTML=(d.recent_errors||[]).map(e=>`<div>${esc(new Date(e.time*1000).toLocaleTimeString())} · ${esc(e.label)}${e.status?' · 状态 '+esc(e.status):''}<span class="log text-neutral-400"> #${esc(e.request_id)}</span></div>`).join('');
     const prompt=Number(d.prompt_tokens)||0, completion=Number(d.completion_tokens)||0, tokenTotal=prompt+completion;
     $('t-prompt').textContent=fmt(prompt); $('t-comp').textContent=fmt(completion);
     $('t-total').textContent=fmt(tokenTotal);
@@ -1140,9 +1139,8 @@ function applyModelParamFields(model){
   $('btn-scope-save').textContent = isGlobal ? '💾 保存为全局默认' : '💾 保存为该模型专属';
   $('btn-scope-clear').classList.toggle('hidden', isGlobal);
   $('ov-hint').textContent = isGlobal
-    ? '当前编辑的是全局默认值，对所有未设专属的模型生效。'
-    : (has ? '当前显示该模型的专属值（带 ★）；改动后点“保存为该模型专属”更新。'
-           : '当前显示全局默认值；改动后点“保存为该模型专属”即可只对此模型生效。');
+    ? '编辑范围：所有模型默认值'
+    : (has ? '编辑范围：当前模型专属参数' : '当前继承默认值，保存后仅用于此模型');
 }
 async function saveModelOverride(btn){
   const m=$('model-sel').value; if(!m) return;
@@ -1175,7 +1173,7 @@ function renderCaps(){
   if(m==='__global__'){
     applyModelParamFields(m);
     fillARFor(null);
-    $('caps-summary').innerHTML='<span class="text-xs text-neutral-500">全局默认作用域：下面的值对所有未设 ★ 专属的模型生效。切到具体模型可查看该模型的能力与专属值。</span>';
+    $('caps-summary').innerHTML='';
     ['thinking_g3_level','image_size','image_aspect_ratio'].forEach(id=>{const el=$(id); if(el) el.disabled=false;});
     $('wrap-g3level').style.opacity='1';
     $('think-note').textContent='全局默认：具体下发时仍按各模型能力自动裁剪（例如 Pro 上 minimal 会就近取 low）。';
@@ -1226,12 +1224,8 @@ function renderCaps(){
 }
 function numOrNull(id){ const v=$(id).value.trim(); return v===''?null:Number(v); }
 function numOr(id,d){ const v=$(id).value.trim(); return v===''?d:Number(v); }
-// 说明折叠：点 ⓘ 展开/收起对应的说明块
-function hlp(el,id){const b=document.getElementById(id);const on=b.classList.toggle('show');el.classList.toggle('on',on);}
+function hlp(el,id){const b=document.getElementById(id);if(!b)return;const on=b.classList.toggle('show');el.classList.toggle('on',on);el.setAttribute('aria-expanded',String(on));}
 async function saveSettings(btn){
-  // 只保存 ② 全局设置区（基础设施项）。
-  // ① 按模型参数不在这里保存——那些字段显示的是"当前所选模型"的生效值，
-  // 一起提交会把某个模型的专属值（比如生图的注入内容）写成全局默认。
   const patch={
     img_compress_enabled:$('img_compress_enabled').checked,
     img_compress_max_dim:numOr('img_compress_max_dim',1536),
@@ -1252,19 +1246,7 @@ async function saveSettings(btn){
     resumable_ttl_seconds:numOr('resumable_ttl_seconds',1800),
     resumable_max_streams:numOr('resumable_max_streams',200),
   };
-  // 7 个可覆盖参数：仅当所选模型“没有专属配置”时，才作为全局默认保存，
-  // 避免把某模型的专属值误存成全局（专属值请用“保存为该模型专属”）。
-  const m=$('model-sel').value;
-  const overriding = !!(OVERRIDES[m] && Object.keys(OVERRIDES[m]).length>0);
-  if(!overriding){
-    Object.assign(patch,{
-    });
-  }
-  const scope = overriding
-    ? '将保存全局的基础设施项（图压缩/重试/假流式/预填充/思考控制开关等）。\n当前所选模型有专属思考/生图/采样参数，不会被改动。'
-    : '将保存为全局默认，影响所有【未设置专属参数】的模型。\n已设专属参数的模型不受影响。';
-  if(!confirm(scope + '\n\n确定保存全局设置吗？')) return;
-  await pending(btn,'正在保存…',async()=>{ try{ GLOBAL_SETTINGS=await api('/api/settings',{method:'POST',body:JSON.stringify(patch)}); dirtyGlobal=false; updateDirtyUI(); toast(overriding?'已保存全局设置；当前模型专属参数未改动':'全局设置已保存','success'); }catch(e){errorToast(e,'保存全局设置失败');} });
+  await pending(btn,'正在保存…',async()=>{ try{ GLOBAL_SETTINGS=await api('/api/settings',{method:'POST',body:JSON.stringify(patch)}); dirtyGlobal=false; updateDirtyUI(); toast('全局设置已保存','success'); }catch(e){errorToast(e,'保存全局设置失败');} });
 }
 
 /* ---------- Logs ---------- */
@@ -1306,8 +1288,9 @@ function clearLogs(){ logwin.innerHTML=''; recentLogs.clear(); recentLogQueue.le
 function updateDirtyUI(){
   $('keys-dirty').textContent=dirtyKeys?'● Key 列表有未保存修改':''; $('keys-dirty').classList.toggle('unsaved',dirtyKeys);
   $('cookie-dirty').textContent=dirtyCookie?'● Cookie / Project ID 有未保存修改':''; $('cookie-dirty').classList.toggle('unsaved',dirtyCookie);
-  const modelDirty=dirtyModels.has(activeModel), msg=[modelDirty?'当前模型参数未保存':'',dirtyGlobal?'全局设置未保存':''].filter(Boolean).join(' · ');
-  $('params-dirty').textContent=msg?('● '+msg):''; $('params-dirty').classList.toggle('unsaved',!!msg);
+  const modelDirty=dirtyModels.has(activeModel);
+  $('params-dirty').textContent=modelDirty?'● 当前模型参数未保存':''; $('params-dirty').classList.toggle('unsaved',modelDirty);
+  $('settings-dirty').textContent=dirtyGlobal?'● 有未保存的全局设置':''; $('settings-dirty').classList.toggle('unsaved',dirtyGlobal);
 }
 async function copyApiAddress(btn){ try{ await navigator.clipboard.writeText($('api-address').value); toast('API 地址已复制','success'); btn.textContent='已复制'; setTimeout(()=>btn.textContent='复制 API 地址',1200); }catch(_e){ $('api-address').select(); toast('请按 Ctrl+C 复制 API 地址'); } }
 
@@ -1330,8 +1313,10 @@ $('keys-list').addEventListener('input',e=>{
   markKeysDirty();
 }); $('keys-list').addEventListener('change',markKeysDirty);
 ['cookie-input','project-input'].forEach(id=>$(id).addEventListener('input',()=>{dirtyCookie=true;updateDirtyUI();}));
-$('view-params').addEventListener('input',e=>{ if(e.target.id==='model-sel') return; if(PER_MODEL_KEYS.includes(e.target.id)){dirtyModels.add(activeModel);MODEL_DRAFTS[activeModel]=collectModelPatch();}else dirtyGlobal=true; updateDirtyUI(); });
-$('view-params').addEventListener('change',e=>{ if(e.target.id==='model-sel') return; if(PER_MODEL_KEYS.includes(e.target.id)){dirtyModels.add(activeModel);MODEL_DRAFTS[activeModel]=collectModelPatch();}else dirtyGlobal=true; updateDirtyUI(); });
+$('view-params').addEventListener('input',e=>{ if(e.target.id==='model-sel'||!PER_MODEL_KEYS.includes(e.target.id)) return; dirtyModels.add(activeModel);MODEL_DRAFTS[activeModel]=collectModelPatch();updateDirtyUI(); });
+$('view-params').addEventListener('change',e=>{ if(e.target.id==='model-sel'||!PER_MODEL_KEYS.includes(e.target.id)) return; dirtyModels.add(activeModel);MODEL_DRAFTS[activeModel]=collectModelPatch();updateDirtyUI(); });
+$('view-settings').addEventListener('input',()=>{dirtyGlobal=true;updateDirtyUI();});
+$('view-settings').addEventListener('change',()=>{dirtyGlobal=true;updateDirtyUI();});
 window.addEventListener('beforeunload',e=>{ if(dirtyKeys||dirtyCookie||dirtyGlobal||dirtyModels.size){e.preventDefault();e.returnValue='';} });
 
 /* init */
@@ -1421,7 +1406,9 @@ async def logout(request: Request):
 
 @app.get("/api/stats")
 async def get_stats_api(_auth: bool = Depends(require_auth)):
-    return JSONResponse(content=stats.get_json_stats())
+    snapshot = stats.get_json_stats()
+    snapshot['error_labels'] = ERROR_LABELS
+    return JSONResponse(content=snapshot)
 
 
 # ==========================================

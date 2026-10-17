@@ -8,7 +8,7 @@
   - 已经产出的增量只存在于那条 TCP 连接里，断了就永远找不回来，前端只能整轮重发
     （重新烧一次上游配额，且长回复在弱网下几乎不可能一次跑完）。
 
-方案（不依赖单条长连接、不用心跳保活）
+方案（缓冲续传与连接保活）
 --------------------------------------
 1. **响应落缓冲**：每个请求在服务端建一个缓冲区，上游产出的每个 SSE 帧按到达顺序
    追加进去并分配**单调递增的序列号 seq**。上游的读取由一个**后台任务**驱动，
@@ -34,8 +34,10 @@
 """
 
 import asyncio
+import codecs
 import hashlib
 import json
+import re
 import time
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
@@ -391,10 +393,21 @@ class DetachedRequest:
         return getattr(self._request, item)
 
 
-def _as_text(chunk: Any) -> str:
-    if isinstance(chunk, bytes):
-        return chunk.decode("utf-8", errors="replace")
-    return str(chunk)
+async def _sse_frames(chunks: AsyncIterator[Any]) -> AsyncIterator[str]:
+    """ASGI chunks need not align with SSE frames or UTF-8 characters."""
+    decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+    pending = ''
+    async for chunk in chunks:
+        pending += decoder.decode(chunk) if isinstance(chunk, bytes) else str(chunk)
+        while True:
+            boundary = re.search(r'\r?\n\r?\n', pending)
+            if boundary is None:
+                break
+            yield pending[:boundary.start()]
+            pending = pending[boundary.end():]
+    pending += decoder.decode(b'', final=True)
+    if pending.strip():
+        yield pending
 
 
 def frame_with_id(seq: int, frame: str) -> str:
@@ -402,7 +415,7 @@ def frame_with_id(seq: int, frame: str) -> str:
 
     注释帧（以 `:` 开头）不带 id —— 它不是事件，带 id 会污染客户端游标。
     """
-    if frame.startswith("data:"):
+    if any(line.startswith("data:") for line in frame.splitlines()):
         return f"id: {seq}\n{frame}"
     return frame
 
@@ -416,30 +429,28 @@ async def pump_stream(buf: ResumableBuffer, body_iterator: AsyncIterator[Any]) -
     try:
         upstream_error = None
         upstream_error_code = 500
-        async for chunk in body_iterator:
-            text = _as_text(chunk)
-            if not text:
+        async for raw_frame in _sse_frames(body_iterator):
+            lines = raw_frame.splitlines()
+            data_lines = [line[5:].lstrip(' ') for line in lines if line.startswith('data:')]
+            if not data_lines:
+                # 注释心跳由每个读者单独发送，不进入 data 事件序号。
                 continue
-            if text.lstrip().startswith(":"):
-                # 注释帧（旧心跳等）不是事件：不进缓冲、不占序号，保持 id == 下标
-                continue
+            text = '\n'.join(line for line in lines
+                             if not line.startswith((':', 'id:'))) + '\n\n'
             await buf.append(frame_with_id(buf.next_seq, text))
-            for line in text.splitlines():
-                if not line.startswith("data:"):
-                    continue
-                raw = line[5:].strip()
-                if not raw or raw == "[DONE]":
-                    continue
-                try:
-                    data = json.loads(raw)
-                except (TypeError, ValueError):
-                    continue
-                error = data.get("error") if isinstance(data, dict) else None
-                if isinstance(error, dict):
-                    upstream_error = str(error.get("message") or "上游返回错误事件。")
-                    code = error.get("code")
-                    if isinstance(code, int) and 400 <= code <= 599:
-                        upstream_error_code = code
+            raw = '\n'.join(data_lines).strip()
+            if not raw or raw == "[DONE]":
+                continue
+            try:
+                data = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            error = data.get("error") if isinstance(data, dict) else None
+            if isinstance(error, dict):
+                upstream_error = str(error.get("message") or "上游返回错误事件。")
+                code = error.get("code")
+                if isinstance(code, int) and 400 <= code <= 599:
+                    upstream_error_code = code
         if not buf.events or not buf.events[-1].strip().endswith("[DONE]"):
             await buf.append(frame_with_id(buf.next_seq, DONE_FRAME))
         if upstream_error is not None:
@@ -463,7 +474,8 @@ async def pump_stream(buf: ResumableBuffer, body_iterator: AsyncIterator[Any]) -
                 pass
 
 
-async def sse_from_buffer(buf: ResumableBuffer, start_seq: int = 0) -> AsyncIterator[str]:
+async def sse_from_buffer(buf: ResumableBuffer, start_seq: int = 0,
+                          heartbeat_interval: float = 5.0) -> AsyncIterator[str]:
     """把缓冲区内容按 SSE 吐给当前这条前端连接（可从任意 seq 续取）。
 
     事件落缓冲时已带 `id: <seq>`（见 pump_stream），这里原样吐出，不再二次加工。
@@ -471,9 +483,27 @@ async def sse_from_buffer(buf: ResumableBuffer, start_seq: int = 0) -> AsyncIter
     if start_seq > 0:
         print(f"↩️ [续传] {buf.id} 从事件 #{start_seq} 续传（缓冲区已有 {buf.next_seq} 个事件）。")
     delivered_done = False
-    async for _seq, frame in buf.iter_from(start_seq):
-        yield frame
-        if frame.strip().endswith("[DONE]"):
-            delivered_done = True
-    if delivered_done:
-        buf.mark_delivered()
+    index = max(0, start_seq)
+    buf.readers += 1
+    try:
+        while True:
+            frames = buf.snapshot(index, 128)
+            if frames:
+                for frame in frames:
+                    buf.last_access = time.time()
+                    yield frame
+                    index += 1
+                    if frame.strip().endswith("[DONE]"):
+                        delivered_done = True
+                continue
+            if buf.done:
+                break
+            # Heartbeats belong to this connection, never to the replay cursor.
+            buf.last_access = time.time()
+            yield ": keep-alive\n\n"
+            await buf.wait_for(index, max(0.01, heartbeat_interval))
+        if delivered_done:
+            buf.mark_delivered()
+            print(f"✅ [续传交付] {buf.id} 已向当前连接发送结束帧。")
+    finally:
+        buf.readers = max(0, buf.readers - 1)
