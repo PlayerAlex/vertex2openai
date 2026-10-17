@@ -328,9 +328,11 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   input:checked + .slider{background:var(--accent)}
   input:checked + .slider:before{transform:translateX(18px)}
   .hero { background:#fff; border:1px solid var(--border); border-radius:16px; }
-  .helpq { position:relative; display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; min-width:16px; padding:0; flex-shrink:0;
+  .helpq { position:relative; top:-1px; display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; min-width:16px; padding:0; flex-shrink:0;
            border-radius:50%; border:1px solid #cbd5e1; background:#fff; color:#64748b; font-family:inherit; font-size:10px; font-weight:600; line-height:1;
            cursor:pointer; user-select:none; vertical-align:middle; margin-left:5px; transition:.15s; }
+  .help-label { display:inline-flex; align-items:center; white-space:nowrap; }
+  .help-label .helpq { top:0; }
   .helpq::after { content:""; position:absolute; inset:-6px; }
   .helpq:hover { border-color:var(--accent); color:var(--accent); background:rgba(79,70,229,.06); }
   .helpq.on { border-color:var(--accent); color:#fff; background:var(--accent); }
@@ -374,6 +376,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .app-topbar h1{white-space:nowrap}.local-short{display:none}
   @media (max-width: 640px) {
     .helpq::after{inset:-10px}
+    .setting-choice-row{flex-wrap:wrap}.setting-choice-row>.inp{max-width:none!important}
     body{padding-bottom:calc(72px + env(safe-area-inset-bottom))}.app-topbar{height:auto;min-height:68px;padding:12px;position:sticky}.app-topbar>div:first-child{gap:10px}.app-topbar svg{width:34px;height:34px}.app-topbar h1{font-size:15px}.app-topbar p{display:none}.header-actions{width:auto!important;flex-wrap:nowrap!important}.header-actions .pill{display:none}.header-actions #local-access:not(.hidden),.header-actions #logout-btn:not(.hidden){display:inline-flex}.local-wide{display:none}.local-short{display:inline}.workspace-layout{display:block;min-height:0}.content-area{padding:20px 12px 30px}.page-heading{align-items:flex-start;margin-bottom:18px}.page-heading h2{font-size:21px}.page-heading .pill{display:none}
     .side-nav{position:fixed;z-index:40;left:0;right:0;bottom:0;top:auto;height:calc(68px + env(safe-area-inset-bottom));padding:7px 5px calc(7px + env(safe-area-inset-bottom));display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;background:rgba(11,18,32,.96);backdrop-filter:blur(16px);border-top:1px solid rgba(255,255,255,.08)!important}.side-label{display:none}.tab{min-width:0;padding:5px 1px;font-size:11px;line-height:1.1;flex-direction:column;gap:2px;justify-content:center;text-align:center}.tab-icon{font-size:17px;height:21px}.tab.active{box-shadow:none}
     .toolbar { width:100%; display:grid!important; grid-template-columns:1fr 1fr; }
@@ -532,7 +535,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     </div>
 
     <div id="cookie-box" class="card p-5 hidden">
-		      <div class="mb-2"><label class="lbl" for="cookie-input">Google Cookie</label><button type="button" class="helpq" aria-label="查看 Cookie 配置说明" aria-expanded="false" aria-controls="h_cookie_life" onclick="hlp(this,'h_cookie_life')">!</button></div>
+		      <div class="mb-2"><span class="help-label"><label class="lbl" for="cookie-input">Google Cookie</label><button type="button" class="helpq" aria-label="查看 Cookie 配置说明" aria-expanded="false" aria-controls="h_cookie_life" onclick="hlp(this,'h_cookie_life')">!</button></span></div>
       <div id="h_cookie_life" class="helpbox mb-3">粘贴 console.cloud.google.com 的完整 Cookie，包含 HttpOnly 字段。支持 Cookie-Editor 导出的 JSON 和 Cookie 请求头；保存时自动检查 SAPISID。Cookie 有效期取决于账号会话，权限失效后重新获取即可。</div>
       <textarea id="cookie-input" rows="3" class="inp log mb-3" placeholder="粘贴完整 Cookie 或 Cookie-Editor 导出的 JSON"></textarea>
 	      <label class="lbl mb-2 block" for="project-input">Google Cloud Project ID</label>
@@ -689,8 +692,8 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     </div>
 	    <div class="grid md:grid-cols-2 gap-4">
       <div class="card p-5">
-            <div class="flex items-center justify-between gap-3">
-              <span class="text-sm">标准模式 location<button type="button" class="helpq" aria-label="查看请求区域说明" aria-expanded="false" aria-controls="h_loc" onclick="hlp(this,'h_loc')">!</button></span>
+	            <div class="setting-choice-row flex items-center justify-between gap-3">
+	              <span class="help-label text-sm">标准模式 location<button type="button" class="helpq" aria-label="查看请求区域说明" aria-expanded="false" aria-controls="h_loc" onclick="hlp(this,'h_loc')">!</button></span>
               <select id="express_location" class="inp" style="max-width:180px">
             <option value="global">global（默认·推荐）</option>
             <option value="">默认（后端自选·旧行为）</option>
