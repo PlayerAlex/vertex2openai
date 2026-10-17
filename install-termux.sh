@@ -12,6 +12,7 @@ GUEST_STATE="/var/lib/quick-vertex-api"
 REPO_URL="${VERTEX_REPO_URL:-https://github.com/PlayerAlex/vertex2openai.git}"
 BRANCH="${VERTEX_BRANCH:-main}"
 RAW_BASE="${VERTEX_RAW_BASE:-https://raw.githubusercontent.com/PlayerAlex/vertex2openai/main}"
+API_BASE="${VERTEX_API_BASE:-https://api.github.com/repos/PlayerAlex/vertex2openai/contents}"
 TEMP_DIR=""
 
 stage() {
@@ -70,8 +71,15 @@ if [[ -f "$PREFIX/bin/vertex" ]]; then
   "$PREFIX/bin/vertex" stop
 fi
 TEMP_DIR="$(mktemp -d "${TMPDIR:-$PREFIX/tmp}/quick-vertex.XXXXXX")"
-curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
-  "$RAW_BASE/termux/vertex-internal.sh" -o "$TEMP_DIR/vertex-internal.sh"
+if ! curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+  --connect-timeout 15 --max-time 120 \
+  "$RAW_BASE/termux/vertex-internal.sh" -o "$TEMP_DIR/vertex-internal.sh"; then
+  printf '原始文件下载暂不可用，正在改用 GitHub 官方 API。\n'
+  curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+    --connect-timeout 15 --max-time 120 --header 'Accept: application/vnd.github.raw+json' \
+    --get --data-urlencode "ref=$BRANCH" \
+    "$API_BASE/termux/vertex-internal.sh" -o "$TEMP_DIR/vertex-internal.sh"
+fi
 chmod 755 "$TEMP_DIR/vertex-internal.sh"
 proot-distro login \
   --bind "$STATE_ROOT:$GUEST_STATE" \

@@ -78,7 +78,7 @@ python -m unittest discover -s tests -t . -v
 只需要先安装一次 Termux App，不需要 root、Docker、VPS，也不用预先安装 Python、Git 或 Debian。打开 Termux 后复制下面这一整行；它会先通过 Termux 官方包管理器安装 `curl`，再从本仓库的 HTTPS 地址下载安装器：
 
 ```bash
-pkg update -y && pkg install -y curl && curl --fail --location --proto '=https' --tlsv1.2 --retry 3 https://raw.githubusercontent.com/PlayerAlex/vertex2openai/main/install-termux.sh -o "$HOME/install-quick-vertex.sh" && bash "$HOME/install-quick-vertex.sh"
+pkg update -y && pkg install -y curl && curl -fL --retry 3 -H 'Accept: application/vnd.github.raw+json' 'https://api.github.com/repos/PlayerAlex/vertex2openai/contents/install-termux.sh?ref=main' -o "$HOME/install-quick-vertex.sh" && bash "$HOME/install-quick-vertex.sh"
 ```
 
 安装器会创建名为 `quickvertex` 的专用 Debian 环境，不会覆盖你已有的 `debian` 环境；Python、Git、venv 和项目依赖都会自动安装。服务默认监听 `0.0.0.0:8050`，安装完成并通过健康检查后会打开：
