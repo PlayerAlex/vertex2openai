@@ -33,17 +33,18 @@ trap 'die "命令在第 $LINENO 行执行失败。"' ERR
 
 [[ -n "${PREFIX:-}" && "$PREFIX" == */com.termux/* ]] || \
   die "请在 Android 的 Termux 中运行此脚本。"
-command -v pkg >/dev/null 2>&1 || die "未找到 Termux 的 pkg 命令。"
+command -v apt >/dev/null 2>&1 || die "未找到 Termux 的 apt 命令，请在使用 APT 包管理器的 Termux 中运行。"
 
 stage 1 "安装缺少的基础工具"
-packages=()
-command -v curl >/dev/null 2>&1 || packages+=(curl)
-command -v proot-distro >/dev/null 2>&1 || packages+=(proot-distro)
-if ((${#packages[@]})); then
-  pkg update -y
-  pkg install -y "${packages[@]}"
+if ! curl --version >/dev/null 2>&1 || ! command -v proot-distro >/dev/null 2>&1; then
+  # Termux 不支持部分升级；pkg 检查镜像也依赖 curl，因此修复时直接使用 apt。
+  printf '正在更新 Termux 软件包并安装依赖；已有的配置文件将保留。\n'
+  apt update
+  apt full-upgrade -y -o Dpkg::Options::=--force-confold
+  apt install -y curl proot-distro
 fi
-command -v curl >/dev/null 2>&1 || die "curl 安装失败。"
+curl --version >/dev/null 2>&1 || \
+  die "curl 仍无法运行。请执行 apt update && apt full-upgrade -y，完成后重新运行安装命令。"
 command -v proot-distro >/dev/null 2>&1 || die "proot-distro 安装失败。"
 
 stage 2 "准备专用 Debian 环境（不会覆盖已有 Debian）"

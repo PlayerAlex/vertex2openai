@@ -129,10 +129,6 @@ if grep -Eq '(^|[^[:alnum:]_-])(pkill|killall)([^[:alnum:]_-]|$)' "$ROOT_DIR/ter
 fi
 
 grep -q 'quickvertex' "$ROOT_DIR/install-termux.sh"
-grep -q 'pkg install -y' "$ROOT_DIR/install-termux.sh"
-if grep -Eq 'pkg +(upgrade|update.*&&.*upgrade)' "$ROOT_DIR/install-termux.sh"; then
-  printf '安装器不应执行全系统升级。\n' >&2
-  exit 1
-fi
+bash "$ROOT_DIR/termux/test-install-prerequisites.sh"
 
 printf 'Termux 部署脚本模拟检查通过。\n'

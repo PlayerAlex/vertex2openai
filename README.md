@@ -75,10 +75,10 @@ python -m unittest discover -s tests -t . -v
 
 已有旧版本？先看[旧版本升级与迁移教程](docs/UPGRADING.zh-CN.md)，保留原来的 Key、Cookie 和设置。
 
-只需要先安装一次 Termux App，不需要 root、Docker、VPS，也不用预先安装 Python、Git 或 Debian。打开 Termux 后复制下面这一整行；它会先通过 Termux 官方包管理器安装 `curl`，再从本仓库的 HTTPS 地址下载安装器：
+只需要先安装一次 Termux App，不需要 root、Docker、VPS，也不用预先安装 Python、Git 或 Debian。打开 Termux 后复制下面这一整行；它会先更新 Termux 已安装的软件包、保留已有配置文件并安装 `curl` 和 `proot-distro`，再从本仓库的 HTTPS 地址下载安装器。完整更新可以避免新旧动态库混用导致 `curl` 无法启动：
 
 ```bash
-pkg update -y && pkg install -y curl && curl -fL --retry 3 -H 'Accept: application/vnd.github.raw+json' 'https://api.github.com/repos/PlayerAlex/vertex2openai/contents/install-termux.sh?ref=main' -o "$HOME/install-quick-vertex.sh" && bash "$HOME/install-quick-vertex.sh"
+apt update && apt full-upgrade -y -o Dpkg::Options::=--force-confold && apt install -y curl proot-distro && curl -fL --retry 3 -H 'Accept: application/vnd.github.raw+json' 'https://api.github.com/repos/PlayerAlex/vertex2openai/contents/install-termux.sh?ref=main' -o "$HOME/install-quick-vertex.sh" && bash "$HOME/install-quick-vertex.sh"
 ```
 
 安装器会创建名为 `quickvertex` 的专用 Debian 环境，不会覆盖你已有的 `debian` 环境；Python、Git、venv 和项目依赖都会自动安装。服务默认监听 `0.0.0.0:8050`，安装完成并通过健康检查后会打开：
@@ -102,7 +102,9 @@ vertex open            # 再次打开控制台
 vertex update          # 先备份配置，再快进更新并按需更新依赖
 ```
 
-同一 Wi-Fi 的其他设备可访问 `http://手机的局域网IP:8050`。Android 可能在省电或清理后台时终止 Termux；建议把 Termux 加入系统电池优化白名单。网络中断、依赖下载失败或手机重启后，可以重新运行同一条安装命令或执行 `vertex start`，已有配置和 API Key 会保留。安装器不会执行全系统升级，也不会删除你的其他 Termux 环境。
+同一 Wi-Fi 的其他设备可访问 `http://手机的局域网IP:8050`。Android 可能在省电或清理后台时终止 Termux；建议把 Termux 加入系统电池优化白名单。网络中断、依赖下载失败或手机重启后，可以重新运行同一条安装命令或执行 `vertex start`，已有配置和 API Key 会保留。安装入口会更新 Termux 软件包；直接运行脚本时，缺少基础工具或 `curl` 无法执行也会先更新软件包，再安装依赖。更新范围是 Termux 环境中的软件包。
+
+若旧安装命令报 `CANNOT LINK EXECUTABLE "curl"` 或 `cannot locate symbol`，先执行 `apt update && apt full-upgrade -y`，再运行上面的一键安装命令。详细步骤见[安装故障恢复](docs/UPGRADING.zh-CN.md#termux-安装时-curl-提示-cannot-link-executable)。
 
 > 脚本在 Linux CI 中做语法、重复安装、密钥保留和失败保护模拟；Android ROM 的后台策略差异很大，不能把这些模拟等同于所有手机的真机验证。
 

@@ -1,5 +1,21 @@
 # 旧版本升级与迁移
 
+## Termux 安装时 curl 提示 CANNOT LINK EXECUTABLE
+
+如果出现 `cannot locate symbol "ngtcp2_conn_get_tls_early_data_rejected2"` 或类似错误，说明新安装的 `curl/libcurl` 与现有动态库版本不匹配。如果错误出现在下载脚本这一步，`vertex` 管理命令也尚未安装。
+
+1. 在 Termux 的 `$` 提示符后运行：
+
+   ```bash
+   apt update && apt full-upgrade -y
+   ```
+
+   这会更新 Termux 已安装的软件包。若询问是否替换修改过的配置文件，选 `N` 保留现有配置。使用 `apt` 是因为 `pkg` 的镜像检查也依赖当前无法执行的 `curl`。
+2. 等升级完成、再次出现 `$` 后，运行 [README 的一键安装命令](../README.md#手机一键部署android-termux)。新版安装入口会在安装依赖前完整更新 Termux 软件包，避免只升级 `curl`。
+3. 安装成功后再运行 `vertex status`。旧手动部署的数据按下文迁移。
+
+这是 [Termux 官方 pkg 脚本](https://github.com/termux/termux-tools/blob/master/scripts/pkg.in) 在基础命令无法执行时给出的恢复方式。若 `apt` 本身也报错，保留其报错信息继续排查。
+
 ## 已经使用这次的 Termux 一键安装器
 
 在 Termux 输入：
