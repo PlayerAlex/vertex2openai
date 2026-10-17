@@ -9,6 +9,13 @@ permissions:
   contents: read
 
 jobs:
+  termux-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify repeatable Termux deployment scripts
+        run: bash termux/test-deployment.sh
+
   test:
     runs-on: ubuntu-latest
     strategy:

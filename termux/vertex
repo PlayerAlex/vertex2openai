@@ -1,0 +1,245 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Quick Vertex managed launcher
+set -Eeuo pipefail
+
+VERTEX_DEFAULT_DISTRO=quickvertex
+VERTEX_DEFAULT_STATE_ROOT="$HOME/.quick-vertex-api"
+if [[ -f "${PREFIX:-/nonexistent}/etc/quick-vertex.conf" ]]; then
+  . "$PREFIX/etc/quick-vertex.conf"
+fi
+DISTRO="${VERTEX_TERMUX_DISTRO:-$VERTEX_DEFAULT_DISTRO}"
+STATE_ROOT="${VERTEX_TERMUX_STATE_DIR:-$VERTEX_DEFAULT_STATE_ROOT}"
+GUEST_STATE="/var/lib/quick-vertex-api"
+INTERNAL="/opt/quick-vertex-api/repo/termux/vertex-internal.sh"
+PID_FILE="$STATE_ROOT/service.pid"
+LOG_FILE="$STATE_ROOT/service.log"
+URL="http://127.0.0.1:8050"
+
+die() {
+  printf '错误：%s\n' "$1" >&2
+  exit 1
+}
+
+guest() {
+  proot-distro login --bind "$STATE_ROOT:$GUEST_STATE" "$DISTRO" -- "$@"
+}
+
+read_pid() {
+  [[ -f "$PID_FILE" ]] || return 1
+  local pid started
+  read -r pid started <"$PID_FILE" || return 1
+  [[ "$pid" =~ ^[0-9]+$ && "$started" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$pid"
+}
+
+process_start() {
+  local stat fields
+  [[ -r "/proc/$1/stat" ]] || return 1
+  stat="$(<"/proc/$1/stat")"
+  stat="${stat##*) }"
+  read -r -a fields <<<"$stat"
+  [[ "${fields[19]:-}" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "${fields[19]}"
+}
+
+is_our_process() {
+  local pid="$1" cmdline saved_pid saved_start actual_start
+  kill -0 "$pid" 2>/dev/null || return 1
+  read -r saved_pid saved_start <"$PID_FILE" || return 1
+  actual_start="$(process_start "$pid")" || return 1
+  [[ "$saved_pid" == "$pid" && "$saved_start" == "$actual_start" ]] || return 1
+  [[ -r "/proc/$pid/cmdline" ]] || return 1
+  cmdline="$(tr '\0' ' ' <"/proc/$pid/cmdline")"
+  # login 最终 exec 为 proot；匹配本服务独有的绑定和入口，而不依赖旧进程名。
+  [[ "$cmdline" == *"proot"* && "$cmdline" == *"$STATE_ROOT:$GUEST_STATE"* && "$cmdline" == *"$INTERNAL"* && "$cmdline" == *"serve"* ]]
+}
+
+running_pid() {
+  local pid
+  pid="$(read_pid)" || return 1
+  if is_our_process "$pid"; then
+    printf '%s\n' "$pid"
+    return 0
+  fi
+  rm -f "$PID_FILE"
+  return 1
+}
+
+health_ok() {
+  curl --fail --silent --show-error --max-time 2 "$URL/healthz" >/dev/null 2>&1
+}
+
+open_console() {
+  if command -v termux-open-url >/dev/null 2>&1; then
+    termux-open-url "$URL" >/dev/null 2>&1 || true
+  fi
+  printf '控制台：%s\n' "$URL"
+}
+
+start_service() {
+  mkdir -p "$STATE_ROOT"
+  local pid
+  if pid="$(running_pid)"; then
+    printf '服务已在运行（PID %s）。\n' "$pid"
+    open_console
+    return
+  fi
+  if health_ok; then
+    die "8050 端口已被其他服务占用。请先停止占用该端口的程序。"
+  fi
+
+  : >"$LOG_FILE"
+  if command -v termux-wake-lock >/dev/null 2>&1; then
+    termux-wake-lock >/dev/null 2>&1 || true
+  fi
+  nohup proot-distro login --bind "$STATE_ROOT:$GUEST_STATE" "$DISTRO" -- \
+    bash "$INTERNAL" serve >>"$LOG_FILE" 2>&1 </dev/null &
+  pid=$!
+  local started
+  started="$(process_start "$pid")" || die "启动进程已退出，请运行 vertex logs 查看原因。"
+  printf '%s %s\n' "$pid" "$started" >"$PID_FILE.tmp"
+  mv -f "$PID_FILE.tmp" "$PID_FILE"
+
+  local attempt
+  for attempt in $(seq 1 45); do
+    if ! is_our_process "$pid"; then
+      rm -f "$PID_FILE"
+      printf '服务启动失败，最近日志：\n' >&2
+      tail -n 30 "$LOG_FILE" >&2 || true
+      die "请修复上方错误后运行 vertex start 重试。"
+    fi
+    if health_ok; then
+      # 连续确认进程与健康状态，避免端口恰被另一个带 /healthz 的服务抢占时误报。
+      sleep 1
+      if is_our_process "$pid" && health_ok; then
+        printf '服务已启动（PID %s）。\n' "$pid"
+        open_console
+        printf '同一 Wi-Fi 的设备可访问：http://手机的局域网IP:8050\n'
+        return
+      fi
+    fi
+    sleep 1
+  done
+
+  stop_service true
+  die "45 秒内未通过健康检查。运行 vertex logs 查看原因。"
+}
+
+stop_service() {
+  local quiet="${1:-false}" pid attempt
+  if ! pid="$(running_pid)"; then
+    [[ "$quiet" == true ]] || printf '服务当前未运行。\n'
+    return
+  fi
+
+  kill -TERM "$pid"
+  for attempt in $(seq 1 10); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    is_our_process "$pid" || die "PID 已被其他进程复用，已拒绝强制停止。"
+    kill -KILL "$pid"
+  fi
+  rm -f "$PID_FILE"
+  sleep 1
+  if health_ok; then
+    die "本项目的 PRoot 进程已停止，但 8050 端口仍有响应；请运行 vertex status 并检查其他占用者。"
+  fi
+  if command -v termux-wake-unlock >/dev/null 2>&1; then
+    termux-wake-unlock >/dev/null 2>&1 || true
+  fi
+  [[ "$quiet" == true ]] || printf '服务已停止。\n'
+}
+
+show_status() {
+  local pid
+  if pid="$(running_pid)"; then
+    if health_ok; then
+      printf '运行中：PID %s，健康检查正常。\n' "$pid"
+    else
+      printf '启动中或异常：PID %s，健康检查暂未通过。\n' "$pid"
+      return 1
+    fi
+  else
+    printf '未运行。\n'
+    return 1
+  fi
+}
+
+show_logs() {
+  local mode="${1:-}" lines="${2:-120}"
+  [[ "$lines" =~ ^[0-9]+$ ]] || die "日志行数必须是正整数。"
+  touch "$LOG_FILE"
+  if [[ "$mode" == "-f" || "$mode" == "--follow" ]]; then
+    tail -n "$lines" -f "$LOG_FILE"
+  elif [[ -z "$mode" ]]; then
+    tail -n "$lines" "$LOG_FILE"
+  else
+    die "用法：vertex logs [-f] [行数]"
+  fi
+}
+
+update_service() {
+  local was_running=false temp_manager backup_dir file
+  if running_pid >/dev/null; then
+    was_running=true
+    stop_service true
+  fi
+
+  backup_dir="$STATE_ROOT/backups/$(date +%Y%m%d-%H%M%S)-$$"
+  mkdir -p "$backup_dir"
+  chmod 700 "$backup_dir"
+  for file in service.env web_state.json console_sessions.json; do
+    if [[ -f "$STATE_ROOT/$file" ]]; then cp -p "$STATE_ROOT/$file" "$backup_dir/$file"; fi
+  done
+  guest git -C /opt/quick-vertex-api/repo rev-parse HEAD >"$backup_dir/commit.txt" || true
+  printf '升级前配置已备份：%s\n' "$backup_dir"
+
+  if ! guest bash "$INTERNAL" update; then
+    [[ "$was_running" == true ]] && start_service
+    die "更新失败；现有配置和 API Key 未改动，可检查网络后重试。"
+  fi
+
+  temp_manager="${PREFIX:?未检测到 Termux PREFIX}/bin/vertex.new.$$"
+  if guest cat /opt/quick-vertex-api/repo/termux/vertex >"$temp_manager"; then
+    chmod 755 "$temp_manager"
+    mv -f "$temp_manager" "$PREFIX/bin/vertex"
+  else
+    rm -f "$temp_manager"
+    printf '提示：管理命令未能自更新；服务源码与依赖已更新。\n' >&2
+  fi
+
+  printf '更新完成，配置与 API Key 已保留。\n'
+  if [[ "$was_running" == true ]]; then start_service; fi
+}
+
+show_help() {
+  cat <<'EOF'
+快速vertex探测型api - Termux 管理命令
+
+  vertex start          启动并等待健康检查，然后打开控制台
+  vertex stop           停止本服务
+  vertex restart        重启服务
+  vertex status         查看运行状态
+  vertex logs           查看最近 120 行日志
+  vertex logs -f [行数] 持续查看日志
+  vertex open           打开手机控制台
+  vertex update         安全更新源码与依赖（仅快进，不覆盖修改）
+  vertex help           显示本帮助
+
+Android 仍可能在省电或清理后台时终止 Termux，请把 Termux 加入电池优化白名单。
+EOF
+}
+
+case "${1:-help}" in
+  start) start_service ;;
+  stop) stop_service ;;
+  restart) stop_service true; start_service ;;
+  status) show_status ;;
+  logs) shift; show_logs "${1:-}" "${2:-120}" ;;
+  open) open_console ;;
+  update) update_service ;;
+  help|-h|--help) show_help ;;
+  *) show_help; die "未知命令：$1" ;;
+esac

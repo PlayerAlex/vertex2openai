@@ -5,7 +5,7 @@ from typing import Any
 
 import google.genai
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from google import genai
 
 from models import OpenAIRequest
@@ -27,6 +27,38 @@ LEGACY_EXPRESS_PREFIX = "[EXPRESS] "
 LEGACY_PAY_PREFIX = "[PAY]"
 OPENAI_DIRECT_SUFFIX = "-openai"
 OPENAI_SEARCH_SUFFIX = "-openaisearch"
+
+
+async def _close_sdk_clients(clients) -> None:
+    """同时关闭 google-genai 的异步与同步传输，且不掩盖原始请求结果。"""
+    for client in reversed(clients):
+        try:
+            aio_close = getattr(getattr(client, "aio", None), "aclose", None)
+            if aio_close is not None:
+                result = aio_close()
+                if hasattr(result, "__await__"):
+                    await result
+        except Exception as exc:
+            print(f"⚠️ [资源清理] 关闭 Express SDK 异步客户端失败：{type(exc).__name__}")
+        try:
+            sync_close = getattr(client, "close", None)
+            if sync_close is not None:
+                sync_close()
+        except Exception as exc:
+            print(f"⚠️ [资源清理] 关闭 Express SDK 同步客户端失败：{type(exc).__name__}")
+
+
+async def _stream_with_client_cleanup(iterator, clients):
+    try:
+        async for chunk in iterator:
+            yield chunk
+    finally:
+        try:
+            close = getattr(iterator, "aclose", None)
+            if close is not None:
+                await close()
+        finally:
+            await _close_sdk_clients(clients)
 
 
 def _normalize_model_name(model_name: str) -> tuple[str, bool, str | None]:
@@ -209,8 +241,8 @@ class ExpressSDKUpstream(BaseUpstream):
                 content=create_openai_error_response(401, error_msg, "authentication_error"),
             )
 
-        key_record = express_key_manager_instance.get_express_record()
-        if not key_record:
+        key_candidates = express_key_manager_instance.get_express_candidates()
+        if not key_candidates:
             error_msg = "没有可用的 Express API Key。"
             print(f"❌ [密钥配置] {error_msg}")
             return JSONResponse(
@@ -218,20 +250,44 @@ class ExpressSDKUpstream(BaseUpstream):
                 content=create_openai_error_response(401, error_msg, "authentication_error"),
             )
 
-        express_api_key = key_record["key"]
         _inj_settings = app_state.get_effective_settings(base_model_name)
-        # 多账号：location 钉定用**这个 Key 自己的**项目，而不是 Cookie 通道的全局项目
-        model_to_call = resolve_express_model_path(base_model_name, _inj_settings,
-                                                   key_project_id=key_record.get("project_id", ""))
-        client_to_use = genai.Client(
-            vertexai=True,
-            api_key=express_api_key,
-            http_options=get_http_options(),
-        )
-        _log_resolved_endpoint(client_to_use)
-        print(f"🌐 [上游端点] 使用官方 Gemini Express Mode SDK 调用模型 {base_model_name}。")
-        if model_to_call != base_model_name:
-            print(f"🌐 [上游端点] 已钉定 location：{model_to_call}")
+        opened_clients = []
+        opened_client_ids = set()
+
+        def _register_client(client):
+            if id(client) not in opened_client_ids:
+                opened_client_ids.add(id(client))
+                opened_clients.append(client)
+
+        def _client_for_key(api_key: str):
+            client = genai.Client(
+                vertexai=True,
+                api_key=api_key,
+                http_options=get_http_options(),
+            )
+            _register_client(client)
+            return client
+
+        def _context_for_record(record: dict) -> dict:
+            api_key = record["key"]
+            model = resolve_express_model_path(
+                base_model_name, _inj_settings,
+                key_project_id=record.get("project_id", ""),
+            )
+            return {
+                "client": _client_for_key(api_key),
+                "model": model,
+                "fallback_model": base_model_name if model != base_model_name else None,
+                "fallback_client_factory": (
+                    (lambda key=api_key: _client_for_key(key)) if model != base_model_name else None
+                ),
+            }
+
+        remaining_candidates = iter(key_candidates[1:])
+
+        def _next_failover():
+            record = next(remaining_candidates, None)
+            return _context_for_record(record) if record is not None else None
 
         profile = mc.get_profile(base_model_name)
         is_image_model = profile["is_image"]
@@ -306,17 +362,33 @@ class ExpressSDKUpstream(BaseUpstream):
                              "response_modalities", "image_config")}
             print(f"🔎 [出站调试] Express 通道 生成参数={_dbg}")
 
-        return await execute_gemini_call(
-            client_to_use, model_to_call, prompt_func, gen_config_dict, request_obj,
-            fastapi_request=fastapi_request, prefill_text=prefill_text,
-            # 钉定路径万一不对（Project ID 与 Key 不同项目、该区域没有此模型），
-            # 自动退回裸模型名重试一次。
-            fallback_model=(base_model_name if model_to_call != base_model_name else None),
-            fallback_client_factory=(
-                lambda: genai.Client(
-                    vertexai=True,
-                    api_key=express_api_key,
-                    http_options=get_http_options(),
-                )
-            ),
-        )
+        initial_context = _context_for_record(key_candidates[0])
+        client_to_use = initial_context["client"]
+        model_to_call = initial_context["model"]
+        _log_resolved_endpoint(client_to_use)
+        print(f"🌐 [上游端点] 使用官方 Gemini Express Mode SDK 调用模型 {base_model_name}。")
+        if model_to_call != base_model_name:
+            print(f"🌐 [上游端点] 已钉定 location：{model_to_call}")
+
+        try:
+            response = await execute_gemini_call(
+                client_to_use, model_to_call, prompt_func, gen_config_dict, request_obj,
+                fastapi_request=fastapi_request, prefill_text=prefill_text,
+                # 钉定路径万一不对（Project ID 与 Key 不同项目、该区域没有此模型），
+                # 自动退回裸模型名重试一次。
+                fallback_model=initial_context["fallback_model"],
+                fallback_client_factory=initial_context["fallback_client_factory"],
+                failover_factory=_next_failover,
+                client_register=_register_client,
+            )
+        except BaseException:
+            await _close_sdk_clients(opened_clients)
+            raise
+
+        if isinstance(response, StreamingResponse):
+            response.body_iterator = _stream_with_client_cleanup(
+                response.body_iterator, opened_clients)
+            return response
+
+        await _close_sdk_clients(opened_clients)
+        return response

@@ -849,6 +849,8 @@ async def gemini_fake_stream_generator(
     is_auto_attempt: bool,
     prefill_text: str = "",
     fastapi_request: Optional[Any] = None,
+    failover_factory: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
+    client_register: Optional[Callable[[Any], None]] = None,
 ):
     print(f"🌊 [假流式] 已开始调用 Gemini 模型 {model_for_api_call}，客户端请求模型名为 {request_obj.model}。")
 
@@ -907,6 +909,18 @@ async def gemini_fake_stream_generator(
                 raise
             except Exception as e_call:
                 last_error = e_call
+                status_code, _ = extract_upstream_error(e_call)
+                if status_code in {401, 403, 429} and attempt < max_retries and failover_factory is not None:
+                    replacement = failover_factory()
+                    if replacement is not None:
+                        gemini_client_instance = replacement["client"]
+                        model_for_api_call = replacement["model"]
+                        if client_register is not None:
+                            client_register(gemini_client_instance)
+                        stats.add_retry()
+                        print(f"🔄 [密钥切换] 假流式请求收到上游 {status_code}，"
+                              "已切换到下一个 Express API Key。")
+                        continue
                 if is_retryable_exception(e_call) and attempt < max_retries:
                     stats.add_retry()
                     print(f"⚠️ [自动重试] 假流式上游繁忙（{e_call.__class__.__name__}），"
@@ -999,6 +1013,8 @@ async def execute_gemini_call(
     prefill_text: str = "",
     fallback_model: Optional[str] = None,
     fallback_client_factory: Optional[Callable[[], Any]] = None,
+    failover_factory: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
+    client_register: Optional[Callable[[Any], None]] = None,
 ):
     fallback_client = None
 
@@ -1008,7 +1024,27 @@ async def execute_gemini_call(
             return current_client
         if fallback_client is None:
             fallback_client = fallback_client_factory()
+            if client_register is not None:
+                client_register(fallback_client)
         return fallback_client
+
+    def _activate_failover() -> bool:
+        """切换到下一个 Key，并同步该 Key 的模型路径与回退 client 工厂。"""
+        nonlocal current_client, model_to_call, fallback_model
+        nonlocal fallback_client_factory, fallback_client
+        if failover_factory is None:
+            return False
+        replacement = failover_factory()
+        if replacement is None:
+            return False
+        current_client = replacement["client"]
+        model_to_call = replacement["model"]
+        fallback_model = replacement.get("fallback_model")
+        fallback_client_factory = replacement.get("fallback_client_factory")
+        fallback_client = None
+        if client_register is not None:
+            client_register(current_client)
+        return True
 
     # P1-2：prompt 构建内部有远程图片下载与 PIL 压缩（同步阻塞），
     # 放到线程里执行，避免卡住整个事件循环。
@@ -1037,6 +1073,8 @@ async def execute_gemini_call(
                     current_client, model_to_call, actual_prompt_for_call,
                     gen_config_dict, request_obj, is_auto_attempt, prefill_text=prefill_text,
                     fastapi_request=fastapi_request,
+                    failover_factory=failover_factory,
+                    client_register=client_register,
                 ), media_type="text/event-stream"
             )
         else: # True Streaming
@@ -1080,7 +1118,6 @@ async def execute_gemini_call(
                             # 支持 n>1：按候选序号逐个输出
                             num_candidates = len(chunk_item_call.candidates) if getattr(chunk_item_call, "candidates", None) else 1
                             for ci in range(num_candidates):
-                                has_yielded = True
                                 sse_chunk = convert_chunk_to_openai(
                                     chunk_item_call, request_obj.model, response_id_for_stream, ci,
                                     indexer=tool_indexer)
@@ -1088,6 +1125,7 @@ async def execute_gemini_call(
                                     sse_chunk = _dedup_sse_chunk_content(sse_chunk, deduper)
                                     if sse_chunk is None:
                                         continue  # 正文暂存于去重器，跳过空 chunk
+                                has_yielded = True
                                 yield sse_chunk
 
                         # 去重器可能还攒着开头文本（上游没发 finish chunk 的场景）
@@ -1117,6 +1155,14 @@ async def execute_gemini_call(
                         raise
                     except Exception as e_stream_call:
                         is_retryable = is_retryable_exception(e_stream_call)
+                        status_code, _ = extract_upstream_error(e_stream_call)
+
+                        if (not has_yielded and status_code in {401, 403, 429}
+                                and attempt < max_retries and _activate_failover()):
+                            stats.add_retry()
+                            print(f"🔄 [密钥切换] 真流式请求收到上游 {status_code}，"
+                                  "已切换到下一个 Express API Key。")
+                            continue
 
                         # location 钉定路径不对 → 退回裸模型名再试一次（仅在还没输出内容时）
                         if (fallback_model and model_to_call != fallback_model
@@ -1191,6 +1237,13 @@ async def execute_gemini_call(
                 print(f"ℹ️ [客户端断开] 非流式响应期间客户端已断开，模型 {model_to_call} 的请求已安全终止。")
                 raise
             except Exception as e_call:
+                status_code, _ = extract_upstream_error(e_call)
+                if (status_code in {401, 403, 429} and attempt < max_retries
+                        and _activate_failover()):
+                    stats.add_retry()
+                    print(f"🔄 [密钥切换] 非流式请求收到上游 {status_code}，"
+                          "已切换到下一个 Express API Key。")
+                    continue
                 if (fallback_model and model_to_call != fallback_model
                         and is_location_pin_failure(e_call)):
                     print(f"↩️ [上游端点] 钉定路径调用失败（{str(e_call)[:80]}），"

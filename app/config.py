@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class AppSettings(BaseSettings):
     API_KEY: str = "123456"
+    CONSOLE_AUTH: str = "local"
     VERTEX_EXPRESS_API_KEY: Optional[str] = None
     FAKE_STREAMING: bool = False
     FAKE_STREAMING_INTERVAL: float = 1.0
@@ -28,6 +29,7 @@ class AppSettings(BaseSettings):
 _settings = AppSettings()
 
 API_KEY = _settings.API_KEY
+CONSOLE_AUTH = _settings.CONSOLE_AUTH.strip().lower()
 
 raw_vertex_keys = _settings.VERTEX_EXPRESS_API_KEY
 if raw_vertex_keys:

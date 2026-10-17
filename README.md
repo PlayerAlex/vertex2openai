@@ -1,5 +1,5 @@
 ---
-title: Vertex2OpenAI Express Adapter
+title: 快速vertex探测型api
 emoji: 🔄
 colorFrom: blue
 colorTo: green
@@ -7,29 +7,34 @@ sdk: docker
 app_port: 7860
 ---
 
-# Vertex2OpenAI Express Adapter
+# 快速vertex探测型api
 
-Vertex2OpenAI 是一个 **OpenAI API 兼容代理**。它对外提供 OpenAI 风格的 `/v1/chat/completions` 与 `/v1/models` 接口，对内支持两条上游通道调用 **Google Agent Platform（原 Vertex AI）的 Gemini 模型**：
+快速vertex探测型api 是一个带可视化探测与管理控制台的 **OpenAI API 兼容代理**。它对外提供 OpenAI 风格的 `/v1/chat/completions` 与 `/v1/models` 接口，对内支持两条上游通道调用 **Google Agent Platform（原 Vertex AI）的 Gemini 模型**：
 
 - **Express API Key（标准模式）**：用官方 `google-genai` SDK + `VERTEX_EXPRESS_API_KEY` 调用。
 - **Cookie 直连反代模式**：用 Google Cloud 控制台 Cookie + Project ID 直连控制台私有 `batchGraphql` 接口（无需浏览器）。
 
-> 管理控制台 UI 名为 **agentplatform2api**；仓库/镜像名仍沿用 `Vertex2OpenAI`。
+> 项目和控制台对外名称统一为 **快速vertex探测型api**；仓库名、Docker 镜像名以及 `VERTEX_*` 环境变量继续沿用 `Vertex2OpenAI`，避免破坏已有部署。
 >
 > 📌 **说明**：Google 已将 Vertex AI 更名为 **Agent Platform**，文档表述已同步（历史标识符如环境变量 `VERTEX_EXPRESS_API_KEY`、SDK 参数 `vertexai=True`、文件名 `vertexModels.json` 为兼容性保留）。**无头浏览器（Playwright）模式已移除**，由更轻量的 Cookie 直连模式完全替代。
 
 ## 功能特性
 
 - **双上游通道，一键切换**
-  - Express API Key：多 Key 随机或轮询调用官方 SDK。
+  - Express API Key：多 Key 随机或轮询调用官方 SDK；首段内容前遇到 401/403/429 时，在重试预算内自动尝试其他 Key。
   - Cookie 直连反代：Cookie + SAPISIDHASH 直连 `batchGraphql`，走网页端配额（含最新预览模型），真流式、防 60s 超时。**注意：走的是私有接口，见下方风险提示。**
 - **OpenAI 兼容接口**：`GET /v1/models`、`POST /v1/chat/completions`。
-- **管理控制台（浅色风格，单文件，免构建）**
-  - **仅密码登录**：打开根路径 `/`，输入密码（即 `API_KEY`）即可，无需账号。
+- **管理控制台（响应式工作台，免 Node 构建）**
+  - **本机 / 局域网免登录**：使用 `localhost` 或内网 IP 直接打开控制台。首页集中展示客户端 API 地址和密钥，支持显示 / 隐藏及一键复制。
+  - **远程访问登录**：公网域名或经反向代理访问时仍需输入 `API_KEY`，可勾选“记住此设备 30 天”；退出登录会撤销会话。
+  - 桌面端使用侧栏导航，手机端使用底部导航；参数按用途折叠分组，Token 比例来自真实统计，不显示固定演示值。
+  - 前端静态资源随服务打包，无 CDN、无 Node.js 运行或构建依赖，离线局域网也能完整打开控制台。
   - 标准模式 / Cookie 直连模式在线一键切换。
   - 在线热更新并保存 Google Cookie 与 Project ID；智能解析 `Cookie-Editor` 导出的 JSON / Header String；自动从整条控制台 URL 提取 Project ID。
   - **模型参数面板**：按所选模型显示其支持能力，并在线调整思考强度、生图分辨率与比例、采样默认值、输入图压缩、重试、假流式/轮询/安全分显示、预填充兼容模式（详见下文）。
   - **实时监控**：运行日志推流、健康度图表（成功/错误/拥堵重试）、Express 通道 Token 消耗统计（Cookie 私有接口通常不返回可靠用量）。
+  - **操作反馈**：登录限流倒计时、保存中防重复操作、失败保留输入、未保存提醒；支持手机布局。日志仅在打开日志页时连接，支持暂停滚动、清屏，最多保留 1000 条。
+  - **Express Key 批量探测**：可直接探测当前未保存的 Key 草稿，每批最多并发 4 个、单 Key 最长等待 12 秒，逐项显示权限、限流、超时等状态。探测不会替你保存草稿，确认后仍需点击保存；自动识别的 Project ID 不会覆盖手填值。识别到项目只说明 Key 与项目关联成功，不代表所有模型都能实际调用。
 - **Gemini 能力与适配**
   - 文本对话、流式（SSE）与非流式。
   - OpenAI tools / function calling ↔ Gemini function calling 适配（含 Gemini 3.x 多轮所需的 thought signature 编解码）；Express 与 Cookie 直连通道均支持自定义函数声明、调用与结果回传。
@@ -47,7 +52,7 @@ Vertex2OpenAI 是一个 **OpenAI API 兼容代理**。它对外提供 OpenAI 风
 
 ## 稳定性与错误处理
 
-- 上游 HTTP / SDK 错误保留状态码；超时返回 `504`，连接失败返回 `502`。只有明确的瞬时故障按 `retry_max` 重试，普通鉴权/参数错误和未知程序异常直接失败。
+- 上游 HTTP / SDK 错误保留状态码；超时返回 `504`，连接失败返回 `502`。明确的瞬时故障按 `retry_max` 重试；Express 的 401/403/429 可在输出前切换到未尝试的 Key，普通参数错误和未知程序异常直接失败。重试和切 Key 共用最多 `retry_max + 1` 次调用预算，设为 `0` 时只调用一次。SDK 连接在请求正常结束、出错或取消时释放。
 - 流式响应已经开始后，失败通过 `data: {"error": {...}}` 发送，再以 `[DONE]` 结束；客户端应检查 `error`，不能只凭 HTTP 200 或 `[DONE]` 判断成功。已有输出时不会重试整轮回答。模型内容过滤保留 `finish_reason: "content_filter"`。
 - `Last-Event-ID: N` 从事件 **N+1** 续传；`?resume_from=N` 从事件 **N** 开始。续传 POST 必须保留原请求体、认证信息及幂等键。显式续传不会触发新生成，缓冲过期时返回 `404`。
 - `resumable_max_streams` 容量不足时，仅回收已完成且无人读取的缓冲；全部在用时，新请求返回 `503`，原有请求和相同请求的续传不受影响。
@@ -66,9 +71,44 @@ python -m unittest discover -s tests -t . -v
 
 测试使用模拟上游，无需 Google 凭据或外部网络。GitHub Actions 会在 Python 3.11 / 3.12 上执行相同测试。
 
+## 手机一键部署（Android Termux）
+
+已有旧版本？先看[旧版本升级与迁移教程](docs/UPGRADING.zh-CN.md)，保留原来的 Key、Cookie 和设置。
+
+只需要先安装一次 Termux App，不需要 root、Docker、VPS，也不用预先安装 Python、Git 或 Debian。打开 Termux 后复制下面这一整行；它会先通过 Termux 官方包管理器安装 `curl`，再从本仓库的 HTTPS 地址下载安装器：
+
+```bash
+pkg update -y && pkg install -y curl && curl --fail --location --proto '=https' --tlsv1.2 --retry 3 https://raw.githubusercontent.com/PlayerAlex/vertex2openai/main/install-termux.sh -o "$HOME/install-quick-vertex.sh" && bash "$HOME/install-quick-vertex.sh"
+```
+
+安装器会创建名为 `quickvertex` 的专用 Debian 环境，不会覆盖你已有的 `debian` 环境；Python、Git、venv 和项目依赖都会自动安装。服务默认监听 `0.0.0.0:8050`，安装完成并通过健康检查后会打开：
+
+```text
+http://127.0.0.1:8050
+```
+
+首次安装会随机生成本服务的 `API_KEY`，保存在 Termux 主目录的 `.quick-vertex-api/service.env`，源码更新和重复安装都不会轮换它。Google Key 不需要放进安装命令，启动后在控制台「通道与凭证」中填写即可。源码位于专用 Debian 的 `/opt/quick-vertex-api/repo`，配置、Cookie、API Key 与运行状态放在源码外并持久化。
+
+日常管理只用一个短命令：
+
+```bash
+vertex                 # 显示所有命令
+vertex start           # 启动、等待健康检查并打开控制台
+vertex stop            # 只停止本项目进程
+vertex restart
+vertex status
+vertex logs            # 最近日志；vertex logs -f 可持续查看
+vertex open            # 再次打开控制台
+vertex update          # 先备份配置，再快进更新并按需更新依赖
+```
+
+同一 Wi-Fi 的其他设备可访问 `http://手机的局域网IP:8050`。Android 可能在省电或清理后台时终止 Termux；建议把 Termux 加入系统电池优化白名单。网络中断、依赖下载失败或手机重启后，可以重新运行同一条安装命令或执行 `vertex start`，已有配置和 API Key 会保留。安装器不会执行全系统升级，也不会删除你的其他 Termux 环境。
+
+> 脚本在 Linux CI 中做语法、重复安装、密钥保留和失败保护模拟；Android ROM 的后台策略差异很大，不能把这些模拟等同于所有手机的真机验证。
+
 ## 快速开始（本地 Docker）
 
-编辑 `docker-compose.yml`，设置初始环境变量：
+可选：在 `.env` 或 `docker-compose.yml` 中设置初始环境变量。Google Key 也可以启动后直接在控制台填写：
 
 ```yaml
 environment:
@@ -82,22 +122,33 @@ environment:
 docker compose up -d --build
 ```
 
-默认将宿主机 `8050` 映射到容器 `7860`。浏览器打开控制台并用密码（`API_KEY`）登录：
+默认将宿主机 `8050` 映射到容器 `7860`。本机浏览器直接打开，无需输入控制台密码：
 
 ```text
 http://localhost:8050
 ```
+
+手机连接同一 Wi-Fi 后打开 `http://电脑的局域网IP:8050`（例如 `http://192.168.1.10:8050`）。首页“客户端连接信息”会使用当前访问地址生成 Base URL；手机客户端应复制内网地址，电脑客户端可使用 `localhost`。服务仍需保持运行，电脑休眠或关机后手机无法连接。
+
+`CONSOLE_AUTH=local` 仅对直接来自本机 / 私有网段、且以 `localhost` 或内网 IP 访问的请求免登录。公网域名、带转发头的代理访问、跨站浏览器请求仍需登录。局域网其他设备也能管理控制台；需要限制时设 `CONSOLE_AUTH=required`。这不改变 `/v1/*` 接口的 API Key 认证。
+
+需要登录的访问可勾选“记住此设备 30 天”，电脑和手机均适用；普通登录只在当前浏览器会话及 12 小时内有效。设备会话哈希保存在 `STATE_DIR/console_sessions.json`，与配置一起挂载持久化；退出或修改 `API_KEY` 后旧会话失效。首页密钥默认隐藏，不写入浏览器 localStorage。
+
+容器内置健康检查，可用 `docker compose ps` 查看状态，或访问 `GET /healthz`（无需登录）。该端点只说明本地服务可响应，Google 凭据与模型权限请通过实际请求验证。更新代码后执行 `docker compose up -d --build`，控制台配置继续保存在挂载的 `data/` 中。
+
+GitHub Actions 在 PR 中仅构建和检查容器健康；主分支推送或从主分支手动运行时发布 GHCR 镜像，同时提供 `latest` 与 `sha-<完整提交号>` 标签，便于固定版本或回退。
 
 ## 环境变量
 
 | 变量 | 必填 | 默认值 | 说明 |
 |---|---:|---|---|
 | `API_KEY` | 是 | `123456` | 保护本代理的 Key，同时也是**控制台登录密码**。客户端请求用 `Authorization: Bearer <API_KEY>`。 |
+| `CONSOLE_AUTH` | 否 | `local` | 本机 / 局域网 IP 直连免登录；设 `required` 则所有控制台访问都需要登录。 |
 | `VERTEX_EXPRESS_API_KEY` | 否 | 空 | Gemini Express Mode API Key，多个用英文逗号分隔。标准模式使用。 |
 | `ROUNDROBIN` | 否 | `false` | 多 Express Key 轮询(`true`)或随机(`false`)。可在控制台热改。 |
 | `FAKE_STREAMING` | 否 | `false` | 先非流式取回再模拟流式；生图模型始终强制启用。可在控制台热改。 |
 | `FAKE_STREAMING_INTERVAL` | 否 | `1.0` | 假流式等待期间 keep-alive 间隔秒数。可在控制台热改。 |
-| `MODELS_CONFIG_URL` | 否 | 仓库 `vertexModels.json` | 远程模型列表地址；改远程文件即可刷新，无需重部署。 |
+| `MODELS_CONFIG_URL` | 否 | 空（使用本地清单） | 显式配置时下载该地址，失败回退本地；启动或刷新模型缓存时生效。 |
 | `SAFETY_SCORE` | 否 | `false` | 是否把 Gemini safety ratings 附加到输出。可在控制台热改。 |
 | `PROXY_URL` | 否 | 空 | 上游 HTTP/HTTPS/SOCKS 代理。 |
 | `SSL_CERT_FILE` | 否 | 空 | 自定义证书路径。 |
@@ -354,12 +405,11 @@ curl http://localhost:8050/v1/chat/completions \
 
 ## 模型列表配置
 
-> ⚠️ **先看这条**：模型列表**默认从远程拉取** —— `https://raw.githubusercontent.com/bad-woman/vertex2openai/main/vertexModels.json`，只有远程全部地址都不可用时才回退到镜像里的本地 `vertexModels.json`。
-> 所以**只改本地文件（或只更新镜像）通常看不到新模型**，必须二选一：
-> 1. 把更新后的 `vertexModels.json` 推到 GitHub `main`（推荐，改远程即可全部部署生效、无需重部署）；
-> 2. 或设环境变量 `MODELS_CONFIG_URL` 指向你自己维护的地址。
+模型列表默认使用仓库或镜像内的 `vertexModels.json`，加载清单无需访问外网。修改后重启服务；Docker 部署需重新构建镜像。
 
-默认模型列表在远程 `MODELS_CONFIG_URL` 或本地 `vertexModels.json`：
+需要集中维护多处部署时，可设置 `MODELS_CONFIG_URL` 指向自己维护的 JSON 地址。只请求这个地址，网络失败、HTTP 错误或内容无效时回退本地文件；不会自动访问原作者的清单。远程更新在服务启动或刷新模型缓存时生效。
+
+配置格式（也兼容旧字段 `vertex_express_models`）：
 
 ```json
 {

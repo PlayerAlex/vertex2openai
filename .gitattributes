@@ -1,0 +1,2 @@
+*.sh text eol=lf
+termux/vertex text eol=lf

@@ -125,14 +125,18 @@ credentials/
 # 运行态持久化文件（包含控制台保存的 Cookie / Project ID 等敏感信息，严禁入库）
 web_state.json
 app/web_state.json
+console_sessions.json
+app/console_sessions.json
 # If you have other JSON files you *do* want to commit, but want to ensure
 # credential JSON files specifically by name or in certain locations are ignored:
 # specific_credential_file.json
 # some_other_dir/specific_creds.json
 
 # Docker
-.dockerignore
 docker-compose.override.yml
+
+# Local Termux deployment state (contains the generated API key)
+.quick-vertex-api/
 
 # Logs
 logs/

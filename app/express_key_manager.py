@@ -62,6 +62,43 @@ class ExpressKeyManager:
             return self.get_roundrobin_express_record()
         return self.get_random_express_record()
 
+    def get_express_candidates(self) -> List[dict]:
+        """返回一次请求内的候选 Key 顺序，并按 Key 去重。
+
+        首个候选沿用既有的随机/轮询策略；后续候选只用于该请求发生
+        认证、权限或限流错误时故障切换。轮询游标每个请求只前进一步，
+        不会因为一次故障切换吞掉后续请求的起点。
+        """
+        records = self.get_records()
+        if not records:
+            print("❌ [密钥配置] 未配置任何 Express API Key，无法调用 Gemini Express Mode。")
+            return []
+
+        indexed = list(enumerate(records))
+        if app_state.get_setting("roundrobin", app_config.ROUNDROBIN):
+            start = self.round_robin_index % len(indexed)
+            indexed = indexed[start:] + indexed[:start]
+            self.round_robin_index = (start + 1) % len(records)
+            strategy = "轮询"
+        else:
+            random.shuffle(indexed)
+            strategy = "随机"
+
+        candidates = []
+        seen_keys = set()
+        for original_idx, record in indexed:
+            key = record.get("key")
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            candidates.append(dict(record, index=original_idx))
+
+        if candidates:
+            first = candidates[0]
+            print(f"🔑 [密钥选择] 已按{strategy}策略选择第 {first['index'] + 1} 个 Express API Key"
+                  f"（项目：{first.get('project_id') or '未探测'}），本次共有 {len(candidates)} 个候选。")
+        return candidates
+
     # ---------- 向后兼容接口（只要 (序号, Key)） ----------
 
     def get_random_express_key(self) -> Optional[Tuple[int, str]]:
