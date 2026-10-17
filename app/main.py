@@ -328,12 +328,11 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   input:checked + .slider{background:var(--accent)}
   input:checked + .slider:before{transform:translateX(18px)}
   .hero { background:#fff; border:1px solid var(--border); border-radius:16px; }
-  .helpq { position:relative; top:-1px; display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; min-width:16px; padding:0; flex-shrink:0;
-           border-radius:50%; border:1px solid #cbd5e1; background:#fff; color:#64748b; font-family:inherit; font-size:10px; font-weight:600; line-height:1;
-           cursor:pointer; user-select:none; vertical-align:middle; margin-left:5px; transition:.15s; }
-  .help-label { display:inline-flex; align-items:center; white-space:nowrap; }
-  .help-label .helpq { top:0; }
-  .helpq::after { content:""; position:absolute; inset:-6px; }
+  .help-title { display:inline-flex; align-items:center; gap:4px; max-width:100%; vertical-align:middle; }
+  .helpq { position:relative; display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; min-width:14px; padding:0; flex-shrink:0;
+           border-radius:50%; border:1px solid #cbd5e1; background:#fff; color:#64748b; font-family:inherit; font-size:9px; font-weight:600; line-height:1;
+           cursor:pointer; user-select:none; transition:.15s; }
+  .helpq::after { content:""; position:absolute; inset:-5px; }
   .helpq:hover { border-color:var(--accent); color:var(--accent); background:rgba(79,70,229,.06); }
   .helpq.on { border-color:var(--accent); color:#fff; background:var(--accent); }
   .helpbox { display:none; margin-top:7px; padding:9px 11px; border-radius:9px; background:#f7f7fa;
@@ -375,7 +374,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .health-donut-center{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;line-height:1.2}.health-donut-center strong{font-size:25px;letter-spacing:-.04em}.health-donut-center span{font-size:11px;color:var(--muted);margin-top:5px}
   .app-topbar h1{white-space:nowrap}.local-short{display:none}
   @media (max-width: 640px) {
-    .helpq::after{inset:-10px}
+    .helpq::after{inset:-9px}
     .setting-choice-row{flex-wrap:wrap}.setting-choice-row>.inp{max-width:none!important}
     body{padding-bottom:calc(72px + env(safe-area-inset-bottom))}.app-topbar{height:auto;min-height:68px;padding:12px;position:sticky}.app-topbar>div:first-child{gap:10px}.app-topbar svg{width:34px;height:34px}.app-topbar h1{font-size:15px}.app-topbar p{display:none}.header-actions{width:auto!important;flex-wrap:nowrap!important}.header-actions .pill{display:none}.header-actions #local-access:not(.hidden),.header-actions #logout-btn:not(.hidden){display:inline-flex}.local-wide{display:none}.local-short{display:inline}.workspace-layout{display:block;min-height:0}.content-area{padding:20px 12px 30px}.page-heading{align-items:flex-start;margin-bottom:18px}.page-heading h2{font-size:21px}.page-heading .pill{display:none}
     .side-nav{position:fixed;z-index:40;left:0;right:0;bottom:0;top:auto;height:calc(68px + env(safe-area-inset-bottom));padding:7px 5px calc(7px + env(safe-area-inset-bottom));display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;background:rgba(11,18,32,.96);backdrop-filter:blur(16px);border-top:1px solid rgba(255,255,255,.08)!important}.side-label{display:none}.tab{min-width:0;padding:5px 1px;font-size:11px;line-height:1.1;flex-direction:column;gap:2px;justify-content:center;text-align:center}.tab-icon{font-size:17px;height:21px}.tab.active{box-shadow:none}
@@ -438,7 +437,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   <section id="view-overview">
     <div id="connection-card" class="card connection-card p-5 mb-4">
       <div class="connection-heading mb-4">
-        <h2 class="text-base font-semibold">客户端连接信息<button type="button" class="helpq" aria-label="查看客户端连接说明" aria-expanded="false" aria-controls="h_connection" onclick="hlp(this,'h_connection')">!</button></h2>
+        <h2 class="help-title text-base font-semibold">客户端连接信息<button type="button" class="helpq" aria-label="查看客户端连接说明" aria-expanded="false" aria-controls="h_connection" onclick="hlp(this,'h_connection')">!</button></h2>
       </div>
       <div id="h_connection" class="helpbox mb-3">在聊天客户端选择 OpenAI 兼容接口，填入下方地址和密钥。这份密钥用于连接本服务；Google Key 在「通道与凭证」中管理。</div>
       <div class="mb-3">
@@ -466,12 +465,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
       <div class="card p-5 flex flex-col items-center justify-center">
-		        <div class="lbl w-full mb-3">请求成功率<button type="button" class="helpq" aria-label="查看成功率说明" aria-expanded="false" aria-controls="h_health" onclick="hlp(this,'h_health')">!</button></div>
+		        <div class="help-title lbl w-full mb-3">请求成功率<button type="button" class="helpq" aria-label="查看成功率说明" aria-expanded="false" aria-controls="h_health" onclick="hlp(this,'h_health')">!</button></div>
 			        <div id="h_health" class="helpbox w-full mb-3">按“成功 ÷（成功 + 失败）”计算，以响应完整发送为准。进行中和已取消的连接不计入成功率；重试单独计数。统计在服务重启后清零。</div>
 	        <div id="donut" class="health-donut empty" role="img" aria-label="暂无请求"><div class="health-donut-center"><strong id="health-rate">—</strong><span id="health-label">暂无请求</span></div></div>
       </div>
       <div class="card p-5 md:col-span-2">
-	        <div class="lbl mb-4">Token 算力消耗<button type="button" class="helpq" aria-label="查看 Token 统计说明" aria-expanded="false" aria-controls="h_token" onclick="hlp(this,'h_token')">!</button></div>
+		        <div class="help-title lbl mb-4">Token 算力消耗<button type="button" class="helpq" aria-label="查看 Token 统计说明" aria-expanded="false" aria-controls="h_token" onclick="hlp(this,'h_token')">!</button></div>
 	        <div id="h_token" class="helpbox mb-4">仅标准 Express 通道计入；Cookie 直连接口不回传用量。</div>
         <div class="space-y-4">
 	          <div><div class="flex justify-between text-sm mb-1"><span class="text-neutral-600">Prompt（输入）</span><span id="t-prompt" class="val font-semibold">0</span></div><div class="token-track"><div id="token-prompt-bar" class="token-bar bg-blue-600"></div></div></div>
@@ -485,7 +484,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   <!-- Channel -->
   <section id="view-channel" class="hidden">
     <div class="card p-5 mb-4">
-      <div class="lbl mb-3">上游调用通道<button type="button" class="helpq" aria-label="查看通道说明" aria-expanded="false" aria-controls="h_channel" onclick="hlp(this,'h_channel')">!</button></div>
+      <div class="help-title lbl mb-3">上游调用通道<button type="button" class="helpq" aria-label="查看通道说明" aria-expanded="false" aria-controls="h_channel" onclick="hlp(this,'h_channel')">!</button></div>
       <div id="h_channel" class="helpbox mb-3">标准通道使用 Google Express API Key；Cookie 通道使用 Google Cloud 控制台的登录 Cookie。选择后立即切换。</div>
       <div class="flex flex-col sm:flex-row gap-3">
         <label class="flex-1 border border-neutral-200 rounded-lg p-3 cursor-pointer flex items-start gap-3 hover:bg-neutral-50" id="opt-api">
@@ -502,7 +501,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <div class="card p-5 mb-4">
       <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
         <div>
-          <div class="text-sm font-semibold">Express API Key 列表<button type="button" class="helpq" aria-label="查看 Key 列表说明" aria-expanded="false" aria-controls="h_keys" onclick="hlp(this,'h_keys')">!</button></div>
+          <div class="help-title text-sm font-semibold">Express API Key 列表<button type="button" class="helpq" aria-label="查看 Key 列表说明" aria-expanded="false" aria-controls="h_keys" onclick="hlp(this,'h_keys')">!</button></div>
         </div>
         <div class="toolbar flex items-center gap-2">
           <span id="keys-count" class="pill" style="text-transform:none">0 个</span>
@@ -535,7 +534,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     </div>
 
     <div id="cookie-box" class="card p-5 hidden">
-		      <div class="mb-2"><span class="help-label"><label class="lbl" for="cookie-input">Google Cookie</label><button type="button" class="helpq" aria-label="查看 Cookie 配置说明" aria-expanded="false" aria-controls="h_cookie_life" onclick="hlp(this,'h_cookie_life')">!</button></span></div>
+		      <div class="mb-2"><span class="help-title"><label class="lbl" for="cookie-input">Google Cookie</label><button type="button" class="helpq" aria-label="查看 Cookie 配置说明" aria-expanded="false" aria-controls="h_cookie_life" onclick="hlp(this,'h_cookie_life')">!</button></span></div>
       <div id="h_cookie_life" class="helpbox mb-3">粘贴 console.cloud.google.com 的完整 Cookie，包含 HttpOnly 字段。支持 Cookie-Editor 导出的 JSON 和 Cookie 请求头；保存时自动检查 SAPISID。Cookie 有效期取决于账号会话，权限失效后重新获取即可。</div>
       <textarea id="cookie-input" rows="3" class="inp log mb-3" placeholder="粘贴完整 Cookie 或 Cookie-Editor 导出的 JSON"></textarea>
 	      <label class="lbl mb-2 block" for="project-input">Google Cloud Project ID</label>
@@ -552,7 +551,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <div class="card p-5 mb-4">
       <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <div class="lbl mb-1">选择模型 <span id="ov-badge" class="pill pill-accent hidden" style="text-transform:none">已有专属参数</span><button type="button" class="helpq" aria-label="查看模型编辑范围说明" aria-expanded="false" aria-controls="h_model_scope" onclick="hlp(this,'h_model_scope')">!</button></div>
+          <div class="help-title lbl mb-1">选择模型 <span id="ov-badge" class="pill pill-accent hidden" style="text-transform:none">已有专属参数</span><button type="button" class="helpq" aria-label="查看模型编辑范围说明" aria-expanded="false" aria-controls="h_model_scope" onclick="hlp(this,'h_model_scope')">!</button></div>
 		          <select id="model-sel" class="inp model-scope-select" style="min-width:240px" onchange="changeModelScope()"></select>
         </div>
         <div id="caps-summary" class="text-xs text-neutral-600 flex flex-wrap gap-2 max-w-xl"></div>
@@ -574,26 +573,27 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 	    <div id="model-settings-grid" class="grid md:grid-cols-2 gap-4">
       <!-- 思考 -->
       <div class="card p-5">
-        <div class="text-sm font-semibold mb-3">思考强度</div>
+	        <div class="help-title text-sm font-semibold mb-3">思考强度<button type="button" class="helpq" aria-label="查看思考强度说明" aria-expanded="false" aria-controls="h_native_thinking" onclick="hlp(this,'h_native_thinking')">!</button></div>
+	        <div id="h_native_thinking" class="helpbox mb-3"><b>原生思考控制</b>：<b>跟随请求</b>使用前端发来的 <code>reasoning_effort</code>。<b>关闭原生思考</b>会忽略前端参数，压到<span id="ntm-floor">该模型最低档</span>并从响应中移除思考块，适合让角色扮演预设接管思维链。<b>强制用上方档位</b>会忽略前端并使用你选的档位，同时返回原生思考。只想改变一个模型时，请保存为该模型专属。</div>
         <div class="mb-3" id="wrap-g3level">
           <div class="lbl mb-1">Gemini 3.x 思考档位（thinking_level）</div>
           <select id="thinking_g3_level" class="inp"><option value="">自动（按模型默认）</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>
         </div>
         <p id="think-note" class="text-xs text-neutral-500 mt-2"></p>
         <div class="mt-3 pt-3 border-t border-neutral-100">
-          <div class="lbl mb-1">原生思考控制<button type="button" class="helpq" aria-label="查看原生思考控制说明" aria-expanded="false" aria-controls="h_native_thinking" onclick="hlp(this,'h_native_thinking')">!</button></div>
+	          <div class="lbl mb-1">原生思考控制</div>
           <select id="native_thinking_mode" class="inp">
             <option value="request">跟随请求（默认）</option>
             <option value="off">关闭原生思考（角色扮演推荐）</option>
             <option value="console">强制用上方档位（忽略前端）</option>
           </select>
-          <div id="h_native_thinking" class="helpbox"><b>跟随请求</b>：使用前端发来的 <code>reasoning_effort</code>。<br><b>关闭原生思考</b>：忽略前端参数，压到<span id="ntm-floor">该模型最低档</span>并从响应中移除思考块，适合让角色扮演预设接管思维链。<br><b>强制用上方档位</b>：忽略前端并使用你选的档位，同时返回原生思考。只想改变一个模型时，请保存为该模型专属。</div>
         </div>
       </div>
 
       <!-- 生图 -->
       <div class="card p-5">
-        <div class="text-sm font-semibold mb-3">生图</div>
+	        <div class="help-title text-sm font-semibold mb-3">生图<button type="button" class="helpq" aria-label="查看生图设置说明" aria-expanded="false" aria-controls="h_image_settings" onclick="hlp(this,'h_image_settings')">!</button></div>
+	        <div id="h_image_settings" class="helpbox mb-3"><b>生图下发 system 指令</b>：关闭时（默认）生图模型会<b>丢弃 system 提示词</b>——你写的画风、构图要求全部不生效。开启后 system 会随生图请求一起下发。<br>实测对照（system=“纯黑白线稿，只有线条”，user=“画一只猫”）：<b>关 → 彩色写实照片；开 → 黑白线稿</b>。默认关只是为了不改变旧行为，<b>用生图建议打开</b>。<br><br><b>生图也注入预填充</b>：默认关时，下面“注入预填充”的内容<b>不会</b>发给生图模型。预填充对生图有很强的引导力；角色扮演用的预填充也可能让模型改吐文字而不出图。建议配合“保存为该模型专属”，给生图模型单独配置合适的预填充。生图模型会自动改用一句<b>要图片</b>的续写指令；若你自定义了“续写指令模板”，则以自定义内容为准，需写明“直接输出图片”。</div>
         <div class="mb-3">
           <div class="lbl mb-1">默认分辨率（image_size）</div>
           <select id="image_size" class="inp"><option value="512">512</option><option value="1K">1K</option><option value="2K">2K</option><option value="4K">4K</option></select>
@@ -605,66 +605,50 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <p id="image-note" class="text-xs text-neutral-500 mt-2"></p>
         <div class="space-y-3 mt-3 pt-3 border-t border-neutral-100">
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">生图下发 system 指令<button type="button" class="helpq" aria-label="查看生图 system 指令说明" aria-expanded="false" aria-controls="h_isi" onclick="hlp(this,'h_isi')">!</button></span><label class="switch"><input type="checkbox" id="image_system_instruction"><span class="slider"></span></label></div>
-            <div id="h_isi" class="helpbox">关闭时（默认）生图模型会<b>丢弃 system 提示词</b>——你写的画风、构图要求全部不生效。开启后 system 会随生图请求一起下发。<br>实测对照（system=“纯黑白线稿，只有线条”，user=“画一只猫”）：<b>关 → 彩色写实照片；开 → 黑白线稿</b>。默认关只是为了不改变旧行为，<b>用生图建议打开</b>。</div>
+	            <div class="flex items-center justify-between"><span class="text-sm">生图下发 system 指令</span><label class="switch"><input type="checkbox" id="image_system_instruction"><span class="slider"></span></label></div>
           </div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">生图也注入预填充<button type="button" class="helpq" aria-label="查看生图预填充说明" aria-expanded="false" aria-controls="h_ipf" onclick="hlp(this,'h_ipf')">!</button></span><label class="switch"><input type="checkbox" id="inject_prefill_for_image"><span class="slider"></span></label></div>
-            <div id="h_ipf" class="helpbox">默认关：下面“注入预填充”的内容<b>不会</b>发给生图模型。<br>预填充对生图其实有<b>很强的引导力</b>——实测同一句“画一只猫”，预填充承诺“纯黑白钢笔线稿”就真的输出线稿，不加则是彩色写实照片。想用它引导画风或做破限，就打开。<br><b>注意</b>：角色扮演用的预填充（例如思考块开标签）落到生图请求上，可能让模型改吐一段文字而不出图。建议配合“保存为该模型专属”，给生图模型单独配一段合适的预填充。<br>生图模型会自动改用一句<b>要图片</b>的续写指令（否则模型会把“继续往下写”理解成继续写文字，实测会吐字符画）；若你在下面自定义了“续写指令模板”，则以你的为准——生图用时记得写明“直接输出图片”。</div>
+	            <div class="flex items-center justify-between"><span class="text-sm">生图也注入预填充</span><label class="switch"><input type="checkbox" id="inject_prefill_for_image"><span class="slider"></span></label></div>
           </div>
         </div>
       </div>
 
       <!-- 采样默认 -->
       <div class="card p-5">
-        <div class="text-sm font-semibold mb-3">采样默认值<button type="button" class="helpq" aria-label="查看采样默认值说明" aria-expanded="false" aria-controls="h_sampling_defaults" onclick="hlp(this,'h_sampling_defaults')">!</button></div>
-        <div id="h_sampling_defaults" class="helpbox mb-3">留空表示不注入该参数，使用模型默认值。</div>
+	        <div class="help-title text-sm font-semibold mb-3">采样默认值<button type="button" class="helpq" aria-label="查看采样设置说明" aria-expanded="false" aria-controls="h_sampling_defaults" onclick="hlp(this,'h_sampling_defaults')">!</button></div>
+	        <div id="h_sampling_defaults" class="helpbox mb-3"><b>默认值</b>：留空表示不注入该参数，使用模型默认值。<br><br><b>采样参数处理</b>：决定是否把 <code>temperature / top_p / top_k</code> 发给模型。<br><b>自动判定</b>（默认）：按版本号推断——3.6 起、3.5 Flash-Lite、以及 4.x 及以后一律剥离。<br><b>什么时候需要手动改</b>：版本号表达不了“号更小但发布更晚”。比如日后出一个 <code>gemini-3.5-pro</code>，官方按“更新模型”废弃了采样，自动判定却会因为 3.5 &lt; 3.6 而放行——此时给它选<b>强制剥离</b>即可，不必改代码。反过来官方澄清某模型仍可调，就选<b>强制保留</b>。<br>可按模型专属保存。生图模型不受此开关影响（本来就剥离全部采样）；<code>candidate_count</code> 是 3.x 的硬限制，也不归它管。</div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div><div class="lbl mb-1.5">temperature</div><input id="default_temperature" type="number" step="0.1" class="inp" placeholder="—"></div>
           <div><div class="lbl mb-1.5">top_p</div><input id="default_top_p" type="number" step="0.05" class="inp" placeholder="—"></div>
           <div><div class="lbl mb-1.5">max_tokens</div><input id="default_max_tokens" type="number" class="inp" placeholder="—"></div>
         </div>
         <div class="flex items-center justify-between gap-3 mt-5 pt-4 border-t border-neutral-100">
-          <span class="text-sm">采样参数处理<button type="button" class="helpq" aria-label="查看采样参数处理说明" aria-expanded="false" aria-controls="h_sp" onclick="hlp(this,'h_sp')">!</button></span>
+	          <span class="text-sm">采样参数处理</span>
           <select id="sampling_policy" class="inp" style="max-width:170px"><option value="auto">自动判定</option><option value="deprecated">强制剥离</option><option value="allowed">强制保留</option></select>
         </div>
-        <div id="h_sp" class="helpbox">决定是否把 <code>temperature / top_p / top_k</code> 发给模型。<br>
-          <b>自动判定</b>（默认）：按版本号推断——3.6 起、3.5 Flash-Lite、以及 4.x 及以后一律剥离。<br>
-          <b>什么时候需要手动改</b>：版本号表达不了“号更小但发布更晚”。比如日后出一个 <code>gemini-3.5-pro</code>，官方按“更新模型”废弃了采样，自动判定却会因为 3.5 &lt; 3.6 而放行——此时给它选<b>强制剥离</b>即可，不必改代码。反过来官方澄清某模型仍可调，就选<b>强制保留</b>。<br>
-          可按模型专属保存。生图模型不受此开关影响（本来就剥离全部采样）；<code>candidate_count</code> 是 3.x 的硬限制，也不归它管。</div>
         <p id="sampling-note" class="text-xs text-neutral-500 mt-2"></p>
       </div>
 
       <!-- 控制台注入（可按模型覆盖） -->
       <div class="card p-5">
-        <div class="text-sm font-semibold mb-3">注入与续写<button type="button" class="helpq" aria-label="查看注入与续写说明" aria-expanded="false" aria-controls="h_injection_scope" onclick="hlp(this,'h_injection_scope')">!</button></div>
-        <div id="h_injection_scope" class="helpbox mb-3">留空时不注入内容，续写指令使用内置默认。可为不同模型分别保存。</div>
+	        <div class="help-title text-sm font-semibold mb-3">注入与续写<button type="button" class="helpq" aria-label="查看注入与续写说明" aria-expanded="false" aria-controls="h_injection_scope" onclick="hlp(this,'h_injection_scope')">!</button></div>
+	        <div id="h_injection_scope" class="helpbox mb-3">留空时不注入内容，续写指令使用内置默认。可为不同模型分别保存。<br><br><b>附加 system 指令</b>：追加到客户端 system 之<b>后</b>，两条通道都生效。给 <b>RikkaHub 这类轻量前端</b>用；酒馆用户通常留空，且 <code>{{getvar::xx}}</code> 这类宏在代理侧不会解析。<br><br><b>注入预填充</b>：客户端没有发送预填充时，代理自动补一条 assistant 消息，然后按「全局设置」里的“预填充兼容模式”处理。客户端自带预填充、请求带函数调用、生图模型默认跳过；留空则不启用。生图模型还需打开“生图也注入预填充”。<br><br><b>续写指令模板</b>：留空使用内置默认。智能模式下它是续写指令；保留模型轮次模式下它是末尾推动语。生图模型在留空时会自动换用“直接输出图片”的指令；自定义后生图模型也会使用该内容。<br><br><b>思维链守卫</b>：检测到预填充中未闭合的思考标签时，要求模型先完成标签内的思考并闭合，再输出正文。普通预填充和生图模型不受影响。</div>
         <div class="space-y-3">
 
           <div>
-            <div class="lbl mb-1">附加 system 指令<button type="button" class="helpq" aria-label="查看附加 system 指令说明" aria-expanded="false" aria-controls="h_injs" onclick="hlp(this,'h_injs')">!</button></div>
+	            <div class="lbl mb-1">附加 system 指令</div>
             <textarea id="inject_system_instruction" rows="2" class="inp log" placeholder="留空 = 不注入"></textarea>
-            <div id="h_injs" class="helpbox">追加到客户端 system 之<b>后</b>，两条通道都生效。<br>给 <b>RikkaHub 这类轻量前端</b>用：它们没有酒馆的预设系统，每开一个新对话都要重设系统提示。填在这里就是<b>所有前端、所有对话通用</b>。<br><b>酒馆用户请留空</b>——预设已经管了 system，这里再加会和预设打架，而且 <code>{{getvar::xx}}</code> 这类宏在代理侧<b>不会被解析</b>。</div>
           </div>
           <div>
-            <div class="lbl mb-1">注入预填充<button type="button" class="helpq" aria-label="查看注入预填充说明" aria-expanded="false" aria-controls="h_injp" onclick="hlp(this,'h_injp')">!</button></div>
+	            <div class="lbl mb-1">注入预填充</div>
             <textarea id="inject_prefill" rows="2" class="inp log" placeholder="留空 = 不注入"></textarea>
-            <div id="h_injp" class="helpbox">
-              客户端<b>没有发送</b>预填充时，代理自动补一条 assistant 消息，然后按「全局设置」里的“预填充兼容模式”处理。<br>
-              轻量前端<b>从不发送预填充</b>，等于完全用不上破限最强的那个杠杆，连“预填充时压制原生思考”也永远不会触发（3.6-flash 上更容易出现“只有思考没正文”）。填在这里就能补上。<br>
-              内容通常很短：一句开场白 + 思考块的开标签即可，别塞大段规则（规则请放上面的 system 框）。<br>
-              <b>四条护栏，避免和现有功能冲突</b>：① 客户端已自带预填充（酒馆）→ 跳过，不覆盖；② 请求带函数调用 → 跳过；③ 生图模型 → 默认跳过（可用上面的“生图也注入预填充”放行）；④ 留空 → 完全不启用。<br>
-              填完后请用本页上方按钮保存：选择「＊ 全局默认」时保存为所有模型的默认值；选择具体模型时保存为该模型专属。生图模型还需打开“生图也注入预填充”。建议按模型分别配置：生图使用画风描述，角色扮演使用思考块开标签，普通问答模型通常留空。
-            </div>
           </div>
           <div>
-            <div class="lbl mb-1">续写指令模板<button type="button" class="helpq" aria-label="查看续写指令模板说明" aria-expanded="false" aria-controls="h_pfi" onclick="hlp(this,'h_pfi')">!</button></div>
+	            <div class="lbl mb-1">续写指令模板</div>
             <textarea id="prefill_instruction" rows="2" class="inp log" placeholder="留空 = 使用内置默认"></textarea>
-            <div id="h_pfi" class="helpbox">留空即用内置默认，一般不用改。<br><b>「智能」模式</b>下它是那句续写指令，预填充文本会附在它后面；<b>「保留模型轮次」模式</b>下它就是末尾那句推动语。<br>若「保留模型轮次」老是重复开标签，可以把这里改得更短更像催促（例如只填 <code>继续</code>），减少“新一轮”的暗示。<br><b>与生图的关系</b>：留空时，生图模型会自动换用一句“直接输出图片”的指令；<b>一旦你在这里填了内容，生图模型也会用你填的这句</b>——若那句写的是“接着往下写”，生图会吐字符画而不是图片。所以给生图模型请用<b>“保存为该模型专属”</b>单独配一句（例如“直接输出图片，不要任何文字”），别让文本模型的模板串过去。</div>
           </div>
           <div>
-            <div class="flex items-center justify-between gap-3"><span class="text-sm">思维链守卫<button type="button" class="helpq" aria-label="查看思维链守卫说明" aria-expanded="false" aria-controls="h_cotg" onclick="hlp(this,'h_cotg')">!</button></span><label class="switch"><input type="checkbox" id="prefill_cot_guard"><span class="slider"></span></label></div>
-            <div id="h_cotg" class="helpbox">检测到预填充中未闭合的思考标签时，要求模型先完成标签内的思考并闭合，再输出正文。普通预填充和生图模型不受影响。若仍会跳过思考，可尝试把原生思考控制改为“强制用上方档位”，并选择 low。</div>
+	            <div class="flex items-center justify-between gap-3"><span class="text-sm">思维链守卫</span><label class="switch"><input type="checkbox" id="prefill_cot_guard"><span class="slider"></span></label></div>
           </div>
         </div>
       </div>
@@ -677,7 +661,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   <section id="view-settings" class="hidden">
     <div class="card settings-primary p-5 mb-4">
       <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
-        <div><div class="text-base font-semibold">重试与退避<button type="button" class="helpq" aria-label="查看重试设置说明" aria-expanded="false" aria-controls="h_retry" onclick="hlp(this,'h_retry')">!</button></div><div class="text-xs text-neutral-500 mt-1">上游繁忙时自动重试</div></div>
+	        <div><div class="help-title text-base font-semibold">重试与退避<button type="button" class="helpq" aria-label="查看重试设置说明" aria-expanded="false" aria-controls="h_retry" onclick="hlp(this,'h_retry')">!</button></div><div class="text-xs text-neutral-500 mt-1">上游繁忙时自动重试</div></div>
         <span class="pill pill-accent">常用设置</span>
       </div>
       <div id="h_retry" class="helpbox mb-4">重试次数是<b>首次请求失败后的额外尝试次数</b>，范围 0–50，不包含首次请求。退避间隔范围 0–120 秒，仅对可重试错误生效。</div>
@@ -693,7 +677,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 	    <div class="grid md:grid-cols-2 gap-4">
       <div class="card p-5">
 	            <div class="setting-choice-row flex items-center justify-between gap-3">
-	              <span class="help-label text-sm">标准模式 location<button type="button" class="helpq" aria-label="查看请求区域说明" aria-expanded="false" aria-controls="h_loc" onclick="hlp(this,'h_loc')">!</button></span>
+		              <span class="help-title text-sm">标准模式 location<button type="button" class="helpq" aria-label="查看请求区域说明" aria-expanded="false" aria-controls="h_loc" onclick="hlp(this,'h_loc')">!</button></span>
               <select id="express_location" class="inp" style="max-width:180px">
             <option value="global">global（默认·推荐）</option>
             <option value="">默认（后端自选·旧行为）</option>
@@ -762,50 +746,37 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 
       <!-- 开关 -->
       <div class="card p-5">
-        <div class="text-sm font-semibold mb-3">开关 & 预填充</div>
+	        <div class="help-title text-sm font-semibold mb-3">开关 &amp; 预填充<button type="button" class="helpq" aria-label="查看开关与预填充说明" aria-expanded="false" aria-controls="h_switches" onclick="hlp(this,'h_switches')">!</button></div>
+	        <div id="h_switches" class="helpbox mb-3"><b>假流式</b>：标准通道先完整取回回复，再以流式格式返回；等待期间按心跳间隔发送保活片段。生图模型会自动采用假流式。<br><br><b>弱网续传（服务端缓冲）</b>：上游回复边生成边写入缓冲并发送给客户端，等待期间会持续发送保活心跳。支持续传的客户端可在断线后凭 <code>Last-Event-ID</code> 或 <code>?resume_from=</code> 接着读取；也可轮询 <code>/v1/resumable/{id}</code>。关闭后直接转发。<br><br><b>输出附加安全分</b>：在每条回复正文末尾附一个可折叠块，列出各安全分类的概率与严重度评分。前端若不渲染 HTML，会看到一段 <code>&lt;details&gt;</code> 原文。Cookie 通道开启后会下发 <code>BLOCK_NONE</code> 以获取评分，但仍不拦截。<br><br><b>出站参数调试日志</b>：两条通道都会在运行日志里打印实际发出的思考档位与采样参数，平时可关闭。<br><br><b>Cookie 通道额外诊断</b>：仅对 Cookie 直连通道生效，打印出站 <code>generationConfig</code>；无正文时的原始响应样本始终自动记录。<br><br><b>预填充兼容模式</b>：请求里最后一条 assistant 消息就是预填充。Gemini 3.x 不能以 assistant 结尾，需由代理转换。智能模式把文字并入最后一条 user；保留模型轮次会保留 assistant 并补一条推动语，但可能重复开标签；最小模式只补占位 user，不把预填充拼回输出，可能影响前端标签匹配；关闭则原样发出，3.x 会报 400，且不触发预填充思考压制。2.5 及更早模型使用原生透传。<br><br><b>预填充时压制原生思考</b>：检测到预填充时，把模型原生思维链压到最低并不回传，让预设思维链接管。只有请求真正带预填充时才触发。</div>
         <div class="space-y-3">
           <div class="flex items-center justify-between"><span class="text-sm">假流式（fake streaming）</span><label class="switch"><input type="checkbox" id="fake_streaming"><span class="slider"></span></label></div>
           <div class="flex items-center justify-between"><span class="text-sm">假流式心跳间隔(秒)</span><input id="fake_streaming_interval" type="number" step="0.5" class="inp" style="width:90px"></div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">弱网续传（服务端缓冲）<button type="button" class="helpq" aria-label="查看弱网续传说明" aria-expanded="false" aria-controls="h_rsm" onclick="hlp(this,'h_rsm')">!</button></span><label class="switch"><input type="checkbox" id="resumable_enabled"><span class="slider"></span></label></div>
-            <div id="h_rsm" class="helpbox">上游回复边生成边写入缓冲并发送给客户端，等待期间会持续发送保活心跳。支持续传的客户端可在断线后凭 <code>Last-Event-ID</code> 或 <code>?resume_from=</code> 接着读取；也可轮询 <code>/v1/resumable/{id}</code>。关闭后直接转发。</div>
+	            <div class="flex items-center justify-between"><span class="text-sm">弱网续传（服务端缓冲）</span><label class="switch"><input type="checkbox" id="resumable_enabled"><span class="slider"></span></label></div>
           </div>
           <div class="flex items-center justify-between"><span class="text-sm">续传缓冲保留时长(秒)</span><input id="resumable_ttl_seconds" type="number" step="60" class="inp" style="width:90px"></div>
           <div class="flex items-center justify-between"><span class="text-sm">续传缓冲数量上限</span><input id="resumable_max_streams" type="number" step="10" class="inp" style="width:90px"></div>
           <div class="flex items-center justify-between"><span class="text-sm">多 Key 轮询（round-robin）</span><label class="switch"><input type="checkbox" id="roundrobin"><span class="slider"></span></label></div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">输出附加安全分<button type="button" class="helpq" aria-label="查看安全分说明" aria-expanded="false" aria-controls="h_ss" onclick="hlp(this,'h_ss')">!</button></span><label class="switch"><input type="checkbox" id="safety_score"><span class="slider"></span></label></div>
-            <div id="h_ss" class="helpbox">在每条回复<b>正文末尾</b>附一个可折叠块，列出该回复各安全分类的概率与严重度评分（Hate Speech / Dangerous Content / Sexually Explicit / Harassment / Jailbreak）。用来判断内容离触发拦截还有多远。<br>前端若不渲染 HTML，会看到一段 <code>&lt;details&gt;</code> 原文，属正常。<br><b>Cookie 通道注意</b>：该通道平时下发 <code>OFF</code>（分类器整个关闭、上游不回传评分）。打开本开关后会改为下发 <code>BLOCK_NONE</code>——仍然<b>永不拦截</b>，只是让上游把评分算出来回传。不需要看评分就关掉，保持 <code>OFF</code>。</div>
+	            <div class="flex items-center justify-between"><span class="text-sm">输出附加安全分</span><label class="switch"><input type="checkbox" id="safety_score"><span class="slider"></span></label></div>
           </div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">出站参数调试日志<button type="button" class="helpq" aria-label="查看调试日志说明" aria-expanded="false" aria-controls="h_dbg" onclick="hlp(this,'h_dbg')">!</button></span><label class="switch"><input type="checkbox" id="debug_outbound"><span class="slider"></span></label></div>
-            <div id="h_dbg" class="helpbox">两条通道都会在运行日志里打印<b>实际发出</b>的思考档位与采样参数。排查“设置没生效”时先开这个——日志里看到什么，模型就收到了什么。平时可关。</div>
+	            <div class="flex items-center justify-between"><span class="text-sm">出站参数调试日志</span><label class="switch"><input type="checkbox" id="debug_outbound"><span class="slider"></span></label></div>
           </div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">Cookie 通道额外诊断<button type="button" class="helpq" aria-label="查看 Cookie 诊断说明" aria-expanded="false" aria-controls="h_ckd" onclick="hlp(this,'h_ckd')">!</button></span><label class="switch"><input type="checkbox" id="cookie_debug"><span class="slider"></span></label></div>
-            <div id="h_ckd" class="helpbox">仅对 Cookie 直连通道生效，打印出站 <code>generationConfig</code>。<b>无正文时的原始响应样本总是会自动记录，不需要开这个</b>。</div>
+	            <div class="flex items-center justify-between"><span class="text-sm">Cookie 通道额外诊断</span><label class="switch"><input type="checkbox" id="cookie_debug"><span class="slider"></span></label></div>
           </div>
 
 
           <div class="pt-1 border-t border-neutral-100"></div>
           <div class="text-xs font-semibold text-neutral-500 pt-1">预填充兼容</div>
           <div>
-            <div class="flex items-center justify-between gap-3"><span class="text-sm">预填充兼容模式<button type="button" class="helpq" aria-label="查看预填充兼容模式说明" aria-expanded="false" aria-controls="h_pfm" onclick="hlp(this,'h_pfm')">!</button></span>
+	            <div class="flex items-center justify-between gap-3"><span class="text-sm">预填充兼容模式</span>
               <select id="prefill_mode" class="inp" style="width:150px"><option value="smart">智能（默认）</option><option value="keep_turn">保留模型轮次</option><option value="minimal">最小</option><option value="off">关闭</option></select>
-            </div>
-            <div id="h_pfm" class="helpbox">
-              <b>什么是预填充</b>：请求里<b>最后一条 assistant 消息</b>（酒馆预设里通常是最底部那条“助手”条目，内容多为思维链的开标签）。它替模型写好了回复开头，模型只能顺着往下写——这是破限最强的杠杆，也用来顶掉原生思维链。预设里那些 system 条目<b>不是</b>预填充。<br>
-              <b>为什么需要兼容</b>：Gemini 3.x 拒绝以 assistant 结尾的请求（400），必须改造成 user 结尾。<br><br>
-              <b>智能（默认）</b>：删掉那条 assistant，把它的文字并进最后一条 user。模型视角＝“用户给了我一段参考文字”。输出干净（实测开闭标签各 1 个），但模型没有“说过”这句话，破限杠杆最弱。<br>
-              <b>保留模型轮次</b>：assistant 原样留着，后面补一句很短的 user 推动语。模型视角＝“这是我自己写了一半的”，破限杠杆保留。代价是模型容易当成新一轮、<b>把开标签再写一遍</b>（实测 3/3）。<br>
-              <b>最小</b>：只补占位 user 保证不报错，<b>不把预填充拼回输出</b>——思考开标签会缺失，前端正则可能抓不到。<br>
-              <b>关闭</b>：原样发出，3.x 直接 400；而且代理检测不到预填充，思考压制也不会触发。<br><br>
-              2.5 及更早的模型不受影响，走的是<b>原生透传</b>，效果等同老式预填充。
             </div>
           </div>
           <div>
-            <div class="flex items-center justify-between"><span class="text-sm">预填充时压制原生思考<button type="button" class="helpq" aria-label="查看预填充思考压制说明" aria-expanded="false" aria-controls="h_pst" onclick="hlp(this,'h_pst')">!</button></span><label class="switch"><input type="checkbox" id="prefill_suppress_thinking"><span class="slider"></span></label></div>
-            <div id="h_pst" class="helpbox">检测到预填充时，把模型的<b>原生思维链压到最低并不回传</b>，让预设自带的思维链接管（写作效果通常更好，也避免“只有思考没有正文”）。<br>3.x 压到最低档（无法完全关闭），2.5-flash 预算 0 全关，2.5-pro 降到 128。<br><b>只在请求真的带预填充时才触发</b>；若你的预设把思维链写在 system 里、没有 assistant 条目，请改用上方“思考强度”卡片的“关闭原生思考”。</div>
+	            <div class="flex items-center justify-between"><span class="text-sm">预填充时压制原生思考</span><label class="switch"><input type="checkbox" id="prefill_suppress_thinking"><span class="slider"></span></label></div>
           </div>
 
         </div>
