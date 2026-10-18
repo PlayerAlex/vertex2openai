@@ -81,7 +81,13 @@ http://127.0.0.1:8050
 
 启动成功后，命令窗口会持续显示实时日志。**关闭这个窗口或按 Ctrl+C，就会停止服务**；下次再双击 **`启动.bat`** 即可。`查看日志.bat` 也会以这种方式运行服务；如果已有后台实例，会先停止旧实例再打开带日志的新实例。
 
-更新时双击 **`更新.bat`**，它会下载 `PlayerAlex/vertex2openai` 的最新 `main` 版本、重新打开服务与日志窗口，并保留 API Key、Google Key、Cookie 和控制台设置。更新失败会自动恢复上一份可用源码。旧 ZIP 不会自动获得新增 BAT 文件，首次使用这些入口请重新下载并完整解压最新 ZIP。
+更新时只需双击 **`更新.bat`**。它会自动下载 `PlayerAlex/vertex2openai` 的最新 `main` 版本，同时更新应用代码和 Windows 管理脚本，然后重新打开服务与日志窗口；无需去网页重复下载 ZIP。API Key、Google Key、Cookie 和控制台设置都会保留，更新失败会自动恢复上一份可用源码。
+
+如果你安装的是不支持“管理脚本自动更新”的旧 ZIP：先照常双击旧的 **`更新.bat`**，它已经能更新应用功能；然后只需在命令提示符运行下面一条命令，把管理入口迁移到固定安装目录。以后双击 `%LOCALAPPDATA%\QuickVertexAPI\更新.bat` 即可连同管理脚本一起一键更新，无需浏览器下载。
+
+```bat
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\QuickVertexAPI\repo\windows\vertex.ps1" update
+```
 
 运行数据默认位于 `%LOCALAPPDATA%\QuickVertexAPI`：`repo` 是托管源码，`venv` 是独立 Python 环境，`data` 保存配置与凭证，`logs` 保存日志。请保留 ZIP 解压后的文件夹作为双击管理入口；移动它不会影响已经安装的配置，更新也不会修改 `data`。首次安装会生成 `ksv-` 开头的客户端 API Key，可在控制台首页直接复制；Google Key 在「通道与凭证」页面填写。
 

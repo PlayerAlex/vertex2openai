@@ -28,6 +28,7 @@ $VenvDir = Join-Path $InstallRoot "venv"
 $DataDir = Join-Path $InstallRoot "data"
 $LogsDir = Join-Path $InstallRoot "logs"
 $BackupsDir = Join-Path $InstallRoot "backups"
+$ManagerDir = Join-Path $InstallRoot "manager"
 $PidFile = Join-Path $DataDir "service.pid"
 $EnvFile = Join-Path $DataDir "service.env"
 $RequirementsHashFile = Join-Path $DataDir "requirements.sha256"
@@ -299,6 +300,90 @@ function Get-StagedSource {
     }
 }
 
+function Publish-ManagementFiles([string]$SourceRepo) {
+    $relativeFiles = @(
+        "vertex.bat",
+        "windows\vertex.ps1",
+        "windows\ConsoleProcess.cs"
+    )
+    foreach ($relativePath in $relativeFiles) {
+        if (-not (Test-Path -LiteralPath (Join-Path $SourceRepo $relativePath))) {
+            throw "Downloaded source is missing the Windows management file: $relativePath"
+        }
+    }
+
+    $stage = Join-Path $InstallRoot ("manager-staging-" + [Guid]::NewGuid().ToString('N'))
+    $candidate = Join-Path $stage "manager"
+    $backup = $null
+    [void](New-Item -ItemType Directory -Force -Path (Assert-ManagedPath (Join-Path $candidate "windows")))
+    try {
+        # Discover localized launcher names from the archive. Keeping non-ASCII
+        # filenames out of this script also preserves Windows PowerShell 5 support.
+        foreach ($batchFile in @(Get-ChildItem -LiteralPath $SourceRepo -File -Filter "*.bat")) {
+            Copy-Item -LiteralPath $batchFile.FullName -Destination (Join-Path $candidate $batchFile.Name) -Force
+        }
+        foreach ($relativePath in $relativeFiles) {
+            $destination = Join-Path $candidate $relativePath
+            Copy-Item -LiteralPath (Join-Path $SourceRepo $relativePath) -Destination $destination -Force
+        }
+
+        # Reject a truncated or syntactically invalid manager before replacing the working copy.
+        $managerScript = Join-Path $candidate "windows\vertex.ps1"
+        [void][scriptblock]::Create([System.IO.File]::ReadAllText($managerScript))
+
+        if (Test-Path -LiteralPath $ManagerDir) {
+            $backup = Join-Path $BackupsDir ("manager-" + (Get-Date -Format "yyyyMMdd-HHmmss") + "-" + [Guid]::NewGuid().ToString('N').Substring(0, 6))
+            Move-ManagedItem $ManagerDir $backup
+        }
+        try {
+            Move-ManagedItem $candidate $ManagerDir
+        } catch {
+            if ($backup -and (Test-Path -LiteralPath $backup) -and -not (Test-Path -LiteralPath $ManagerDir)) {
+                Move-ManagedItem $backup $ManagerDir
+                $backup = $null
+            }
+            throw
+        }
+        return $backup
+    } finally {
+        if (Test-Path -LiteralPath $stage) { Remove-ManagedItem $stage }
+    }
+}
+
+function Restore-ManagementFiles([string]$Backup) {
+    if (Test-Path -LiteralPath $ManagerDir) { Remove-ManagedItem $ManagerDir }
+    if ($Backup -and (Test-Path -LiteralPath $Backup)) { Move-ManagedItem $Backup $ManagerDir }
+}
+
+function Ensure-StableUpdateLauncher([string]$SourceRepo) {
+    $updateLaunchers = @()
+    foreach ($batchFile in @(Get-ChildItem -LiteralPath $SourceRepo -File -Filter "*.bat")) {
+        $content = [System.IO.File]::ReadAllText($batchFile.FullName)
+        if ($content -match '(?i)vertex\.bat"?\s+update') { $updateLaunchers += $batchFile }
+    }
+    if ($updateLaunchers.Count -ne 1) { throw "Could not identify the Windows update launcher in the downloaded source." }
+
+    # This tiny launcher lives outside manager, so manager can replace itself
+    # without moving a BAT file that cmd.exe is currently reading.
+    $destination = Assert-ManagedPath (Join-Path $InstallRoot $updateLaunchers[0].Name)
+    if (Test-Path -LiteralPath $destination) { return }
+    $lines = @(
+        '@echo off',
+        'setlocal',
+        'set "VERTEX_INSTALL_DIR=%~dp0"',
+        'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0manager\windows\vertex.ps1" update',
+        'if errorlevel 1 exit /b 1',
+        'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0manager\windows\vertex.ps1" run'
+    )
+    $temporary = Assert-ManagedPath (Join-Path $InstallRoot ("update-launcher-" + [Guid]::NewGuid().ToString('N') + ".tmp"))
+    try {
+        [System.IO.File]::WriteAllLines($temporary, $lines, (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $temporary -Destination $destination
+    } finally {
+        if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
+    }
+}
+
 function Get-ManagedProcess {
     if (-not (Test-Path -LiteralPath $PidFile)) { return $null }
     $raw = ([System.IO.File]::ReadAllText($PidFile)).Trim()
@@ -412,6 +497,8 @@ function Install-Or-Update([bool]$IsUpdate) {
     $hadRepo = Test-Path -LiteralPath $RepoDir
     $wasRunning = [bool](Get-ManagedProcess)
     $sourceReplaced = $false
+    $managerBackup = $null
+    $managerPublished = $false
     try {
         $python = Ensure-Python
         $venvPython = Ensure-Venv $python
@@ -425,13 +512,26 @@ function Install-Or-Update([bool]$IsUpdate) {
         $sourceReplaced = $true
         Install-Dependencies $venvPython $RepoDir
         Ensure-ServiceEnvironment
-        Start-Service $true
+        # Verify the new release in the background. The update launcher then transfers to
+        # the refreshed manager's run command, which owns the visible log window.
+        Start-Service $false
+        $managerBackup = Publish-ManagementFiles $RepoDir
+        $managerPublished = $true
+        Ensure-StableUpdateLauncher $RepoDir
+        if ($managerBackup -and (Test-Path -LiteralPath $managerBackup)) {
+            try { Remove-ManagedItem $managerBackup } catch { Write-Warn "Could not remove the previous management files backup: $($_.Exception.Message)" }
+            $managerBackup = $null
+        }
         if ($IsUpdate) { Write-Ok "Update completed. Settings and API keys were preserved." } else { Write-Ok "Installation completed." }
     } catch {
         $failure = $_
+        if ($managerPublished) {
+            try { Restore-ManagementFiles $managerBackup } catch { Write-Warn "Could not restore the previous management files: $($_.Exception.Message)" }
+        }
         if ($sourceReplaced) {
             Write-Warn "Installation/update failed. Restoring the previous managed source..."
             try {
+                if (Get-ManagedProcess) { Stop-Service }
                 if (Test-Path -LiteralPath $RepoDir) { Remove-ManagedItem $RepoDir }
                 if ($backup -and (Test-Path -LiteralPath $backup)) {
                     Move-ManagedItem $backup $RepoDir

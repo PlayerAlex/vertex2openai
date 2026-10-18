@@ -77,7 +77,7 @@ DEFAULT_SETTINGS = {
     "img_compress_quality": 85,
     # 重试
     # 语义：retry_max = 失败后的**重试**次数，总请求次数 = retry_max + 1。
-    # 两条通道统一走 api_helpers.get_retry_settings() 读取（会钳位到 0–50）。
+    # 两条通道统一走 api_helpers.get_retry_settings() 读取；非负整数不设人为上限。
     "retry_max": 10,
     "retry_backoff_seconds": 5,
     # 开关（初始值取环境变量）

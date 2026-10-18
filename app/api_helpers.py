@@ -51,7 +51,9 @@ def get_retry_settings() -> tuple[int, float]:
             "retry_backoff_seconds", app_config.DEFAULT_SETTINGS["retry_backoff_seconds"]))
     except (TypeError, ValueError):
         backoff = float(app_config.DEFAULT_SETTINGS["retry_backoff_seconds"])
-    return max(0, min(50, retry_max)), max(0.0, min(120.0, backoff))
+    # 重试次数完全采用控制台配置，不再静默截断到 50。负数仍按 0 处理，
+    # 保证旧配置或手工修改状态文件时不会产生反向 range。
+    return max(0, retry_max), max(0.0, min(120.0, backoff))
 
 class StreamingReasoningProcessor:
     def __init__(self, tag_name: str = VERTEX_REASONING_TAG):

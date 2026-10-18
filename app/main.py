@@ -304,6 +304,9 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .page-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:22px}
   .page-heading h2{font-size:24px;line-height:1.2;font-weight:750;letter-spacing:-.035em}
   .page-heading p{font-size:13px;color:var(--muted);margin-top:6px}
+  .page-heading-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;min-height:36px}
+  .page-save-action{display:flex;align-items:center;justify-content:flex-end;gap:10px}
+  .page-save-action .status-note{white-space:nowrap}
   .card { background:#fff; border:1px solid var(--border); border-radius:16px; box-shadow:0 1px 2px rgba(16,24,40,.03),0 8px 24px rgba(16,24,40,.035); }
   .lbl { font-size:12px; color:var(--muted); font-weight:500; }
   .val { font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
@@ -370,7 +373,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .connection-key-heading{display:flex;align-items:center;gap:4px;margin-bottom:6px;min-height:28px}
   .connection-key-eye{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:5px;border:0;border-radius:6px;background:transparent;color:#64748b;cursor:pointer}
   .connection-key-eye:hover{background:#e2e8f0;color:#334155}.connection-key-eye:focus-visible{outline:2px solid #6366f1;outline-offset:2px}.connection-key-eye:disabled{opacity:.4;cursor:default}
-  .connection-key-heading .key-regenerate{margin-left:auto;padding:3px 8px;font-size:12px;min-height:28px}
+  .connection-key-heading .key-regenerate{margin-left:2px;padding:3px 8px;font-size:12px;min-height:28px}
   .log-status-dot { width:8px; height:8px; border-radius:999px; background:#a1a1aa; display:inline-block; }
   .log-status-dot.connected { background:#10b981; }
   .log-status-dot.retrying { background:#f59e0b; }
@@ -392,7 +395,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     body{padding-bottom:calc(72px + env(safe-area-inset-bottom))}.app-topbar{height:auto;min-height:68px;padding:12px;position:sticky}.app-topbar>div:first-child{gap:10px}.app-topbar svg{width:34px;height:34px}.app-topbar h1{font-size:15px}.app-topbar p{display:none}.header-actions{width:auto!important;flex-wrap:nowrap!important}.header-actions .pill{display:none}.header-actions #local-access:not(.hidden),.header-actions #logout-btn:not(.hidden){display:inline-flex}.local-wide{display:none}.local-short{display:inline}.workspace-layout{display:block;min-height:0}.content-area{padding:20px 12px 30px}.page-heading{align-items:flex-start;margin-bottom:18px}.page-heading h2{font-size:21px}.page-heading .pill{display:none}
     .side-nav{position:fixed;z-index:40;left:0;right:0;bottom:0;top:auto;height:calc(68px + env(safe-area-inset-bottom));padding:7px 5px calc(7px + env(safe-area-inset-bottom));display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;background:rgba(11,18,32,.96);backdrop-filter:blur(16px);border-top:1px solid rgba(255,255,255,.08)!important}.side-label{display:none}.tab{min-width:0;padding:5px 1px;font-size:11px;line-height:1.1;flex-direction:column;gap:2px;justify-content:center;text-align:center}.tab-icon{font-size:17px;height:21px}.tab.active{box-shadow:none}
     .toolbar { width:100%; display:grid!important; grid-template-columns:1fr 1fr; }
-    .toolbar .btn { grid-column:1/-1; }
+    .toolbar .key-save-btn { grid-column:auto; }
     .key-main { align-items:stretch!important; flex-direction:column; }
     .key-actions { width:100%; justify-content:flex-end; flex-wrap:wrap; }
     .key-project-row { align-items:stretch!important; flex-direction:column; }
@@ -401,7 +404,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     .cookie-save-row { align-items:flex-start!important; flex-direction:column; }
     .cookie-save-row .btn { width:100%; }
     #view-logs .log-toolbar { align-items:flex-start; flex-wrap:wrap; }
-    .connection-row{display:grid;grid-template-columns:minmax(0,1fr) auto}.connection-row button{padding-left:10px;padding-right:10px}.metric-card{padding:14px!important}.metric-card .val{font-size:22px}.metric-icon{margin-bottom:8px}.params-section-head{align-items:flex-start!important}.params-section-head>span.text-xs{display:none}.settings-actions{align-items:stretch;flex-direction:column}.settings-actions .btn{width:100%}.model-scope-select{min-width:0!important;max-width:100%}.toast{bottom:82px;max-width:calc(100vw - 24px);text-align:center}
+    .connection-row{display:grid;grid-template-columns:minmax(0,1fr) auto}.connection-row button{padding-left:10px;padding-right:10px}.metric-card{padding:14px!important}.metric-card .val{font-size:22px}.metric-icon{margin-bottom:8px}.params-section-head{align-items:flex-start!important}.params-section-head>span.text-xs{display:none}.settings-actions{align-items:stretch;flex-direction:column}.settings-actions .btn{width:100%}.model-scope-select{min-width:0!important;max-width:100%}.page-heading-actions{flex-shrink:0}.page-save-action .status-note{display:none}.page-save-action .btn{padding-left:14px;padding-right:14px}.toast{bottom:82px;max-width:calc(100vw - 24px);text-align:center}
   }
 </style>
 </head>
@@ -444,7 +447,14 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="view-logs" data-tab="logs" onclick="switchTab('logs')"><span class="tab-icon">⌁</span><span>运行日志</span></button>
   </nav>
   <main class="content-area">
-    <div class="page-heading"><div><h2 id="page-title">数据概览</h2><p id="page-subtitle">连接信息与实时用量</p></div><span class="pill">本地工作台</span></div>
+    <div class="page-heading">
+      <div><h2 id="page-title">数据概览</h2><p id="page-subtitle">连接信息与实时用量</p></div>
+      <div class="page-heading-actions">
+        <span id="page-default-action" class="pill">本地工作台</span>
+        <div id="page-action-params" class="page-save-action hidden"><span id="params-dirty" class="status-note" role="status" aria-live="polite"></span><button id="btn-scope-save" class="btn px-4 py-2 text-sm" onclick="saveModelOverride(this)">保存</button></div>
+        <div id="page-action-settings" class="page-save-action hidden"><span id="settings-dirty" class="status-note" role="status" aria-live="polite"></span><button id="btn-save-settings" class="btn px-4 py-2 text-sm" onclick="saveSettings(this)">保存</button></div>
+      </div>
+    </div>
 
   <!-- Overview -->
   <section id="view-overview">
@@ -520,11 +530,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
           <span id="keys-count" class="pill" style="text-transform:none">0 个</span>
           <button id="btn-probe-all" class="btn-ghost px-3 py-1.5 text-sm" onclick="probeAllKeys(this)">🔎 探测全部项目</button>
           <button class="btn-ghost px-3 py-1.5 text-sm" onclick="addKeyRow()">＋ 添加 Key</button>
+          <button id="btn-save-keys" class="btn key-save-btn px-3 py-1.5 text-sm" onclick="saveExpressKeys(true)">保存</button>
         </div>
       </div>
       <div id="h_keys" class="helpbox">
         可添加多个 Google 账号的 Key；轮询方式在「全局设置」中调整。<br>
-        <b>自动保存</b>：输入完成后自动保存；启用、删除和项目识别结果也会自动保存，<b>不需要重启服务</b>。保存失败时会提示重试。<br>
+        <b>保存</b>：输入完成后会自动保存；也可点右上角「保存」立即提交当前内容。启用、删除和项目识别结果也会保存，<b>不需要重启服务</b>。失败时修改会保留，可再次点击保存。<br>
         <b>Project ID</b>：每个 Key 属于不同的谷歌账号/项目，标准模式的 location 钉定会用<b>这个 Key 自己的项目</b>拼资源路径 <code>projects/{project}/locations/{location}/...</code>，不再共用 Cookie 通道那份全局 Project ID。<br>
         启动时自动探测填入（用不存在的模型名调一次 generateContent，从上游 404 错误信息里解析项目，不消耗配额；来源显示 <code>auto</code>）；也可点每行的「探测」单独重探，或直接手填（来源变 <code>manual</code>，探测不会覆盖手填值）。<br>
         探测失败不影响调用：拿不到项目就退回全局 Project ID，再退回裸模型名（旧行为）。<br>
@@ -546,14 +557,11 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     </div>
 
     <div id="cookie-box" class="card p-5 hidden">
-		      <div class="mb-2"><span class="help-title"><label class="lbl" for="cookie-input">Google Cookie</label><button type="button" class="helpq" aria-label="查看 Cookie 配置说明" aria-expanded="false" aria-controls="h_cookie_life" onclick="hlp(this,'h_cookie_life')">!</button></span></div>
+		      <div class="flex items-center justify-between gap-3 mb-2"><span class="help-title"><label class="lbl" for="cookie-input">Google Cookie</label><button type="button" class="helpq" aria-label="查看 Cookie 配置说明" aria-expanded="false" aria-controls="h_cookie_life" onclick="hlp(this,'h_cookie_life')">!</button></span><button id="btn-save-cookie" class="btn px-4 py-2 text-sm" onclick="saveCookie(this)">保存并启用</button></div>
       <div id="h_cookie_life" class="helpbox mb-3">粘贴 console.cloud.google.com 的完整 Cookie，包含 HttpOnly 字段。支持 Cookie-Editor 导出的 JSON 和 Cookie 请求头；保存时自动检查 SAPISID。Cookie 有效期取决于账号会话，权限失效后重新获取即可。</div>
       <textarea id="cookie-input" rows="3" class="inp log mb-3" placeholder="粘贴完整 Cookie 或 Cookie-Editor 导出的 JSON"></textarea>
 	      <label class="lbl mb-2 block" for="project-input">Google Cloud Project ID</label>
       <input id="project-input" class="inp mb-3" placeholder="可直接粘贴含 ?project=xxx 的整条 URL，自动提取">
-	      <div class="cookie-save-row flex items-center justify-between gap-3">
-	        <button id="btn-save-cookie" class="btn px-4 py-2 text-sm" onclick="saveCookie(this)">保存并启用</button>
-      </div>
 	      <div id="cookie-dirty" class="status-note mt-2" aria-live="polite"></div>
     </div>
   </section>
@@ -568,12 +576,10 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         </div>
         <div id="caps-summary" class="text-xs text-neutral-600 flex flex-wrap gap-2 max-w-xl"></div>
       </div>
-      <div id="h_model_scope" class="helpbox">选择「＊ 全局默认」可设置所有模型的默认值；选择具体模型可保存该模型专属值，保存后模型名会出现 ★。优先级为：<b>单次请求 &gt; 模型专属 &gt; 全局默认 &gt; 内置</b>，最终仍按模型能力自动裁剪。重试、弱网续传等服务级选项请到独立的「全局设置」页面。</div>
+      <div id="h_model_scope" class="helpbox">选择「＊ 全局默认」可设置所有模型的默认值；选择具体模型可保存该模型专属值，保存后模型名会出现 ★。修改后会自动保存，也可点页面右上角「保存」立即提交。优先级为：<b>单次请求 &gt; 模型专属 &gt; 全局默认 &gt; 内置</b>，最终仍按模型能力自动裁剪。重试、弱网续传等服务级选项请到独立的「全局设置」页面。</div>
       <div class="flex items-center gap-2 mt-3 flex-wrap">
-	        <button id="btn-scope-save" class="btn px-4 py-2 text-sm" onclick="saveModelOverride(this)">💾 保存模型设置</button>
 	        <button id="btn-scope-clear" class="btn-ghost px-4 py-2 text-sm" onclick="clearModelOverride(this)">恢复模型默认设置</button>
         <span id="ov-hint" class="text-xs text-neutral-500"></span>
-	        <span id="params-dirty" class="status-note" aria-live="polite"></span>
       </div>
     </div>
 
@@ -676,14 +682,10 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 	        <div><div class="help-title text-base font-semibold">自动重试<button type="button" class="helpq" aria-label="查看重试设置说明" aria-expanded="false" aria-controls="h_retry" onclick="hlp(this,'h_retry')">!</button></div><div class="text-xs text-neutral-500 mt-1">上游繁忙时自动重试</div></div>
         <span class="pill pill-accent">常用设置</span>
       </div>
-      <div id="h_retry" class="helpbox mb-4">重试次数是<b>首次请求失败后再尝试的次数</b>，范围 0–50；填 0 表示不重试。重试间隔范围 0–120 秒，仅在服务繁忙等可恢复的错误下重试。</div>
+      <div id="h_retry" class="helpbox mb-4">重试次数是<b>首次请求失败后再尝试的次数</b>，请填写 0 或更大的整数；填 0 表示不重试。重试间隔范围 0–120 秒，仅在服务繁忙等可恢复的错误下重试。</div>
       <div class="grid grid-cols-2 gap-3 mb-4">
-        <div><label class="lbl mb-1 block" for="retry_max">失败后重试次数</label><input id="retry_max" type="number" min="0" max="50" step="1" class="inp"></div>
+        <div><label class="lbl mb-1 block" for="retry_max">失败后重试次数</label><input id="retry_max" type="number" min="0" step="1" class="inp"></div>
         <div><label class="lbl mb-1 block" for="retry_backoff_seconds">重试间隔（秒）</label><input id="retry_backoff_seconds" type="number" min="0" max="120" step="0.5" class="inp"></div>
-      </div>
-      <div class="settings-actions pt-4 border-t border-blue-100">
-        <span id="settings-dirty" class="status-note" aria-live="polite"></span>
-        <button id="btn-save-settings" class="btn px-5 py-2.5 text-sm" onclick="saveSettings(this)">保存全局设置</button>
       </div>
     </div>
 	    <div class="grid md:grid-cols-2 gap-4">
@@ -787,9 +789,6 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       </div>
     </div>
 
-    <div class="settings-actions mt-4">
-	      <button class="btn px-5 py-2.5 text-sm" onclick="saveSettings(this)">保存全局设置</button>
-    </div>
   </section>
 
   <!-- Logs -->
@@ -817,6 +816,9 @@ let GLOBAL_SETTINGS = {}, OVERRIDES = {};
 let runtimeMode='api_key', currentTab='overview', toastTimer=null, lastStatsError='';
 let dirtyKeys=false, dirtyCookie=false, dirtyGlobal=false, activeModel='__global__';
 const dirtyModels=new Set(), MODEL_DRAFTS={};
+let globalSaveTimer=null, globalSaving=false, globalRevision=0, globalSaveState='idle', globalManualQueued=false;
+let modelSaving=false;
+const modelSaveTimers=new Map(), modelSaveQueue=new Set(), modelManualQueue=new Set(), modelRevisions={}, modelSaveStates={};
 const PER_MODEL_KEYS = ['native_thinking_mode','thinking_g3_level','image_size','image_aspect_ratio','default_temperature','default_top_p','default_max_tokens','inject_system_instruction','inject_prefill','prefill_instruction','image_system_instruction','inject_prefill_for_image','sampling_policy','prefill_cot_guard'];
 const COMMON_ARS = ["1:1","3:2","2:3","3:4","4:3","4:5","5:4","9:16","16:9","21:9","1:4","4:1","1:8","8:1","9:21"];
 
@@ -892,8 +894,11 @@ function switchTab(t){
   currentTab=t;
   document.querySelectorAll('.tab').forEach(e=>{ const on=e.dataset.tab===t; e.classList.toggle('active',on); e.setAttribute('aria-selected',String(on)); });
   ['overview','channel','params','settings','logs'].forEach(v=>$('view-'+v).classList.toggle('hidden', v!==t));
-  const meta={overview:['数据概览','连接信息与实时用量'],channel:['通道与凭证','管理上游通道和 Key'],params:['模型参数','调整各模型的生成方式'],settings:['全局设置','重试、网络与服务级选项'],logs:['运行日志','查看当前服务动态']};
+  const meta={overview:['数据概览','连接信息与实时用量'],channel:['通道与凭证','管理上游通道和 Key'],params:['模型参数','修改会自动保存，也可手动保存'],settings:['全局设置','修改会自动保存，也可手动保存'],logs:['运行日志','查看当前服务动态']};
   $('page-title').textContent=meta[t][0]; $('page-subtitle').textContent=meta[t][1];
+  $('page-default-action').classList.toggle('hidden',t==='params'||t==='settings');
+  $('page-action-params').classList.toggle('hidden',t!=='params');
+  $('page-action-settings').classList.toggle('hidden',t!=='settings');
   if(t==='logs') connectLogs(); else disconnectLogs();
   window.scrollTo({top:0,behavior:'auto'});
 }
@@ -974,7 +979,7 @@ async function loadRuntime(){
 }
 
 /* ---------- Express Key 列表（多账号，热编辑） ---------- */
-let KEYS = [], keySaveTimer=null, keySaving=false, keyRevision=0, keySaveState='idle', keyProbeAll=false;
+let KEYS = [], keySaveTimer=null, keySaving=false, keyRevision=0, keySaveState='idle', keyProbeAll=false, keyManualQueued=false;
 function scheduleKeysSave(delay=650){ clearTimeout(keySaveTimer); keySaveTimer=setTimeout(saveExpressKeys,delay); }
 function esc(v){ return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function keySrcPill(rec){
@@ -1048,9 +1053,12 @@ async function loadExpressKeys(refresh=false){
     if(!$('keys-list').contains(document.activeElement)) renderKeys();
   }catch(e){ errorToast(e,'Key 列表加载失败'); }
 }
-async function saveExpressKeys(){
-  if(!dirtyKeys||keySaving||keyProbeAll||KEYS.some(rec=>rec._probing)) return;
+async function saveExpressKeys(manual=false){
   clearTimeout(keySaveTimer);
+  collectKeys();
+  if(!dirtyKeys){ if(manual) toast('当前 Key 列表已保存','success'); return; }
+  if(keySaving){ if(manual) keyManualQueued=true; return; }
+  if(keyProbeAll||KEYS.some(rec=>rec._probing)){ if(manual) toast('探测完成后会立即保存'); return; }
   const payload=collectKeys(), revision=keyRevision;
   keySaving=true;keySaveState='saving';updateDirtyUI();
   try{
@@ -1061,8 +1069,11 @@ async function saveExpressKeys(){
       if(!$('keys-list').contains(document.activeElement)&&!KEYS.some(rec=>rec._probing)&&!keyProbeAll) renderKeys();
       setTimeout(()=>loadExpressKeys(true),2500);
     }
-  }catch(e){keySaveState='error';errorToast(e,'自动保存失败，修改仍保留在页面上');}
-  finally{keySaving=false;updateDirtyUI();if(dirtyKeys&&revision!==keyRevision) scheduleKeysSave();}
+  }catch(e){keySaveState='error';errorToast(e,'保存失败，修改仍保留在页面上');}
+  finally{
+    const runQueued=keyManualQueued;keyManualQueued=false;keySaving=false;updateDirtyUI();
+    if(dirtyKeys&&(revision!==keyRevision||runQueued)) scheduleKeysSave(0);
+  }
 }
 async function probeOneKey(i,btn){
   collectKeys();
@@ -1140,30 +1151,84 @@ function applyModelParamFields(model){
   const isGlobal = (model==='__global__');
   const has = !isGlobal && !!OVERRIDES[model] && Object.keys(OVERRIDES[model]).length>0;
   $('ov-badge').classList.toggle('hidden', !has);
-  // 保存按钮的落点随作用域切换，避免"看着像全局、存进了专属"（或反过来）
-  $('btn-scope-save').textContent = isGlobal ? '💾 保存为全局默认' : '💾 保存模型设置';
+  $('btn-scope-save').title = isGlobal ? '立即保存所有模型的默认参数' : '立即保存当前模型的专属参数';
   $('btn-scope-clear').classList.toggle('hidden', isGlobal);
   $('ov-hint').textContent = isGlobal
     ? '编辑范围：所有模型默认值'
     : (has ? '编辑范围：当前模型专属参数' : '当前继承默认值，保存后仅用于此模型');
 }
-async function saveModelOverride(btn){
-  const m=$('model-sel').value; if(!m) return;
-  const patch=collectModelPatch();
-  if(m==='__global__'){
-    await pending(btn,'正在保存…',async()=>{ try{ await api('/api/settings',{method:'POST',body:JSON.stringify(patch)}); Object.assign(GLOBAL_SETTINGS,patch); dirtyModels.delete(m); delete MODEL_DRAFTS[m]; updateDirtyUI(); toast('已保存为全局默认','success'); }catch(e){errorToast(e,'保存全局默认失败');} });
-    return;
+function scheduleModelSave(model,delay=750){
+  clearTimeout(modelSaveTimers.get(model));
+  modelSaveTimers.set(model,setTimeout(()=>{modelSaveTimers.delete(model);requestModelSave(model,false);},delay));
+}
+function markModelDirty(){
+  const model=activeModel;if(!model) return;
+  dirtyModels.add(model);MODEL_DRAFTS[model]=collectModelPatch();
+  modelRevisions[model]=(modelRevisions[model]||0)+1;modelSaveStates[model]='pending';
+  updateDirtyUI();scheduleModelSave(model);
+}
+function runNextModelSave(){
+  const next=[...modelSaveQueue].find(name=>dirtyModels.has(name));
+  if(next){modelSaveQueue.delete(next);const manual=modelManualQueue.delete(next);queueMicrotask(()=>requestModelSave(next,manual));}
+}
+function mergeSavedSettings(patch,response){
+  Object.keys(patch).forEach(key=>{GLOBAL_SETTINGS[key]=response&&Object.prototype.hasOwnProperty.call(response,key)?response[key]:patch[key];});
+}
+async function requestModelSave(model,manual=false){
+  clearTimeout(modelSaveTimers.get(model));modelSaveTimers.delete(model);
+  if(model===activeModel&&dirtyModels.has(model)) MODEL_DRAFTS[model]=collectModelPatch();
+  if(!dirtyModels.has(model)){if(manual) toast('当前模型参数已保存','success');return;}
+  if(modelSaving){modelSaveQueue.add(model);if(manual) modelManualQueue.add(model);return;}
+  const patch=Object.assign({},MODEL_DRAFTS[model]||{}), revision=modelRevisions[model]||0;
+  modelSaving=true;modelSaveStates[model]='saving';updateDirtyUI();
+  try{
+    if(model==='__global__'){
+      const d=await api('/api/settings',{method:'POST',body:JSON.stringify(patch)});
+      mergeSavedSettings(patch,d);
+    }else{
+      const d=await api('/api/model-overrides/'+encodeURIComponent(model),{method:'POST',body:JSON.stringify(patch)});
+      OVERRIDES[model]=d.override||patch;refreshModelSelStars();
+    }
+    if(revision===(modelRevisions[model]||0)){
+      dirtyModels.delete(model);delete MODEL_DRAFTS[model];modelSaveStates[model]='saved';
+      if(manual) toast(model==='__global__'?'全局默认参数已保存':model+' 参数已保存','success');
+    }else{modelSaveStates[model]='pending';modelSaveQueue.add(model);if(manual) modelManualQueue.add(model);}
+  }catch(e){
+    modelSaveStates[model]='error';errorToast(e,'模型参数保存失败，修改仍保留在页面上');
+    if(revision!==(modelRevisions[model]||0)){modelSaveQueue.add(model);if(manual) modelManualQueue.add(model);}
+  }finally{
+    modelSaving=false;updateDirtyUI();
+    runNextModelSave();
   }
-  await pending(btn,'正在保存…',async()=>{ try{ const d=await api('/api/model-overrides/'+encodeURIComponent(m),{method:'POST',body:JSON.stringify(patch)}); OVERRIDES[m]=d.override||patch; dirtyModels.delete(m); delete MODEL_DRAFTS[m]; updateDirtyUI(); toast('已保存 '+m+' 专属参数','success'); refreshModelSelStars(); applyModelParamFields(m); }catch(e){errorToast(e,'保存专属参数失败');} });
+}
+async function saveModelOverride(_btn){
+  const model=$('model-sel').value;if(!model) return;
+  await requestModelSave(model,true);
 }
 async function clearModelOverride(btn){
   const m=$('model-sel').value; if(!m) return;
-  if(!OVERRIDES[m]){ toast('该模型没有专属参数'); return; }
-  await pending(btn,'正在清除…',async()=>{ try{ await api('/api/model-overrides/'+encodeURIComponent(m),{method:'DELETE'}); delete OVERRIDES[m]; dirtyModels.delete(m); delete MODEL_DRAFTS[m]; updateDirtyUI(); toast('已清除 '+m+' 专属参数，回退全局','success'); refreshModelSelStars(); applyModelParamFields(m); }catch(e){errorToast(e,'清除专属参数失败');} });
+  if(modelSaving){toast('参数正在保存，请稍后再恢复默认设置');return;}
+  if(!OVERRIDES[m]&&!dirtyModels.has(m)){ toast('该模型没有专属参数'); return; }
+  clearTimeout(modelSaveTimers.get(m));modelSaveTimers.delete(m);modelSaveQueue.delete(m);modelManualQueue.delete(m);
+  const revision=modelRevisions[m]||0;
+  modelSaving=true;modelSaveStates[m]='saving';updateDirtyUI();
+  try{
+    await pending(btn,'正在恢复…',async()=>{
+      await api('/api/model-overrides/'+encodeURIComponent(m),{method:'DELETE'});
+      delete OVERRIDES[m];
+      if(revision===(modelRevisions[m]||0)){
+        dirtyModels.delete(m);delete MODEL_DRAFTS[m];modelSaveStates[m]='saved';
+      }else{modelSaveStates[m]='pending';modelSaveQueue.add(m);}
+      refreshModelSelStars();
+      if(activeModel===m){renderCaps();restoreModelDraft(m);}
+      toast('已恢复 '+m+' 的默认设置','success');
+    });
+  }catch(e){modelSaveStates[m]='error';errorToast(e,'恢复默认设置失败，修改仍保留在页面上');}
+  finally{modelSaving=false;updateDirtyUI();runNextModelSave();}
 }
 function refreshModelSelStars(){
   const sel=$('model-sel'); const cur=sel.value;
-  [...sel.options].forEach(o=>{ const base=o.value; o.textContent = base + (OVERRIDES[base]?' ★':''); });
+  [...sel.options].forEach(o=>{ const base=o.value; o.textContent = base==='__global__'?'＊ 全局默认（对所有模型）':base+(OVERRIDES[base]?' ★':''); });
   sel.value=cur;
 }
 function chip(t, accent){ return `<span class="pill${accent?' pill-accent':''}">${t}</span>`; }
@@ -1229,14 +1294,14 @@ function renderCaps(){
 }
 function numOrNull(id){ const v=$(id).value.trim(); return v===''?null:Number(v); }
 function numOr(id,d){ const v=$(id).value.trim(); return v===''?d:Number(v); }
+function nonNegativeIntOr(id,d){const raw=$(id).value.trim();if(raw==='')return d;const value=Number(raw);if(!Number.isInteger(value)||value<0)throw new ApiError('失败后重试次数必须是 0 或更大的整数');return value;}
 function hlp(el,id){const b=document.getElementById(id);if(!b)return;const on=b.classList.toggle('show');el.classList.toggle('on',on);el.setAttribute('aria-expanded',String(on));}
-async function saveSettings(btn){
-  const patch={
+function collectGlobalPatch(){ return {
     img_compress_enabled:$('img_compress_enabled').checked,
     img_compress_max_dim:numOr('img_compress_max_dim',1536),
     img_compress_max_mb:numOr('img_compress_max_mb',1.5),
     img_compress_quality:numOr('img_compress_quality',85),
-    retry_max:numOr('retry_max',10),
+    retry_max:nonNegativeIntOr('retry_max',10),
     retry_backoff_seconds:numOr('retry_backoff_seconds',5),
     fake_streaming:$('fake_streaming').checked,
     fake_streaming_interval:numOr('fake_streaming_interval',1),
@@ -1250,8 +1315,28 @@ async function saveSettings(btn){
     resumable_enabled:$('resumable_enabled').checked,
     resumable_ttl_seconds:numOr('resumable_ttl_seconds',1800),
     resumable_max_streams:numOr('resumable_max_streams',200),
-  };
-  await pending(btn,'正在保存…',async()=>{ try{ GLOBAL_SETTINGS=await api('/api/settings',{method:'POST',body:JSON.stringify(patch)}); dirtyGlobal=false; updateDirtyUI(); toast('全局设置已保存','success'); }catch(e){errorToast(e,'保存全局设置失败');} });
+  }; }
+function scheduleGlobalSave(delay=750){clearTimeout(globalSaveTimer);globalSaveTimer=setTimeout(()=>saveSettings(null,false),delay);}
+function markGlobalDirty(){dirtyGlobal=true;globalRevision++;globalSaveState='pending';updateDirtyUI();scheduleGlobalSave();}
+async function saveSettings(_btn,manual=true){
+  clearTimeout(globalSaveTimer);globalSaveTimer=null;
+  if(!dirtyGlobal){if(manual) toast('全局设置已保存','success');return;}
+  if(globalSaving){if(manual) globalManualQueued=true;return;}
+  let patch;
+  try{patch=collectGlobalPatch();}
+  catch(e){globalSaveState='error';updateDirtyUI();errorToast(e,'请检查全局设置');return;}
+  const revision=globalRevision;
+  globalSaving=true;globalSaveState='saving';updateDirtyUI();
+  try{
+    const d=await api('/api/settings',{method:'POST',body:JSON.stringify(patch)});
+    mergeSavedSettings(patch,d);
+    if(revision===globalRevision){dirtyGlobal=false;globalSaveState='saved';if(manual) toast('全局设置已保存','success');}
+    else globalSaveState='pending';
+  }catch(e){globalSaveState='error';errorToast(e,'全局设置保存失败，修改仍保留在页面上');}
+  finally{
+    const runQueued=globalManualQueued;globalManualQueued=false;globalSaving=false;updateDirtyUI();
+    if(dirtyGlobal&&(revision!==globalRevision||runQueued)) scheduleGlobalSave(0);
+  }
 }
 
 /* ---------- Logs ---------- */
@@ -1291,13 +1376,18 @@ function toggleLogPause(){ logPaused=!logPaused; $('log-pause').textContent=logP
 function clearLogs(){ logwin.innerHTML=''; recentLogs.clear(); recentLogQueue.length=0; toast('日志已清空'); }
 
 function updateDirtyUI(){
-  const keyLabels={idle:'自动保存',pending:'等待保存…',saving:'保存中…',saved:'已保存',error:'保存失败，修改尚未保存'};
+  const keyLabels={idle:'自动保存已开启',pending:'等待自动保存…',saving:'保存中…',saved:'已保存',error:'保存失败，修改仍在页面上'};
   $('keys-dirty').textContent=keyLabels[keySaveState];$('keys-dirty').classList.toggle('unsaved',dirtyKeys);
   $('keys-save-retry').classList.toggle('hidden',keySaveState!=='error');
+  $('btn-save-keys').textContent=keySaving?'保存中…':'保存';
   $('cookie-dirty').textContent=dirtyCookie?'● Cookie / Project ID 有未保存修改':''; $('cookie-dirty').classList.toggle('unsaved',dirtyCookie);
   const modelDirty=dirtyModels.has(activeModel);
-  $('params-dirty').textContent=modelDirty?'● 当前模型参数未保存':''; $('params-dirty').classList.toggle('unsaved',modelDirty);
-  $('settings-dirty').textContent=dirtyGlobal?'● 有未保存的全局设置':''; $('settings-dirty').classList.toggle('unsaved',dirtyGlobal);
+  const modelState=modelSaveStates[activeModel]||(modelDirty?'pending':'idle');
+  const saveLabels={idle:'自动保存已开启',pending:'等待自动保存…',saving:'保存中…',saved:'已保存',error:'保存失败，可再次保存'};
+  $('params-dirty').textContent=saveLabels[modelState]; $('params-dirty').classList.toggle('unsaved',modelDirty);
+  $('btn-scope-save').textContent=modelState==='saving'?'保存中…':'保存';
+  $('settings-dirty').textContent=saveLabels[globalSaveState]; $('settings-dirty').classList.toggle('unsaved',dirtyGlobal);
+  $('btn-save-settings').textContent=globalSaving?'保存中…':'保存';
 }
 async function copyApiAddress(btn){ try{ await navigator.clipboard.writeText($('api-address').value); toast('API 地址已复制','success'); btn.textContent='已复制'; setTimeout(()=>btn.textContent='复制 API 地址',1200); }catch(_e){ $('api-address').select(); toast('请按 Ctrl+C 复制 API 地址'); } }
 
@@ -1319,12 +1409,12 @@ $('keys-list').addEventListener('input',e=>{
   }
   markKeysDirty();
 }); $('keys-list').addEventListener('change',()=>markKeysDirty(0));
-window.addEventListener('online',()=>{if(dirtyKeys) scheduleKeysSave(0);});
+window.addEventListener('online',()=>{if(dirtyKeys) scheduleKeysSave(0);dirtyModels.forEach(model=>scheduleModelSave(model,0));if(dirtyGlobal) scheduleGlobalSave(0);});
 ['cookie-input','project-input'].forEach(id=>$(id).addEventListener('input',()=>{dirtyCookie=true;updateDirtyUI();}));
-$('view-params').addEventListener('input',e=>{ if(e.target.id==='model-sel'||!PER_MODEL_KEYS.includes(e.target.id)) return; dirtyModels.add(activeModel);MODEL_DRAFTS[activeModel]=collectModelPatch();updateDirtyUI(); });
-$('view-params').addEventListener('change',e=>{ if(e.target.id==='model-sel'||!PER_MODEL_KEYS.includes(e.target.id)) return; dirtyModels.add(activeModel);MODEL_DRAFTS[activeModel]=collectModelPatch();updateDirtyUI(); });
-$('view-settings').addEventListener('input',()=>{dirtyGlobal=true;updateDirtyUI();});
-$('view-settings').addEventListener('change',()=>{dirtyGlobal=true;updateDirtyUI();});
+$('view-params').addEventListener('input',e=>{ if(e.target.id==='model-sel'||!PER_MODEL_KEYS.includes(e.target.id)) return; markModelDirty(); });
+$('view-params').addEventListener('change',e=>{ if(e.target.id==='model-sel'||!PER_MODEL_KEYS.includes(e.target.id)) return; markModelDirty(); });
+$('view-settings').addEventListener('input',markGlobalDirty);
+$('view-settings').addEventListener('change',markGlobalDirty);
 window.addEventListener('beforeunload',e=>{ if(dirtyKeys||dirtyCookie||dirtyGlobal||dirtyModels.size){e.preventDefault();e.returnValue='';} });
 
 /* init */

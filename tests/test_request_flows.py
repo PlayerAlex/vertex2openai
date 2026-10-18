@@ -146,6 +146,64 @@ class CookieRequestFlowTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SDKRequestFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_retry_setting_above_fifty_is_used_without_clamping(self):
+        generate = AsyncMock(side_effect=httpx.ReadTimeout(""))
+        client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(
+            generate_content=generate)))
+        request = OpenAIRequest(model="gemini-3.1-pro-preview", messages=[], stream=False)
+
+        def setting(key, default=None):
+            return {"retry_max": 75, "retry_backoff_seconds": 0}.get(key, default)
+
+        with patch.object(api_helpers.app_state, "get_setting", side_effect=setting):
+            with self.assertRaises(httpx.ReadTimeout):
+                await api_helpers.execute_gemini_call(
+                    client, request.model, lambda _: [], {}, request)
+
+        # retry_max 表示失败后的重试次数，所以 75 对应首次请求 + 75 次重试。
+        self.assertEqual(generate.await_count, 76)
+
+    async def test_zero_retry_setting_still_makes_one_request(self):
+        generate = AsyncMock(side_effect=httpx.ReadTimeout(""))
+        client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(
+            generate_content=generate)))
+        request = OpenAIRequest(model="gemini-3.1-pro-preview", messages=[], stream=False)
+
+        def setting(key, default=None):
+            return {"retry_max": 0, "retry_backoff_seconds": 0}.get(key, default)
+
+        with patch.object(api_helpers.app_state, "get_setting", side_effect=setting):
+            with self.assertRaises(httpx.ReadTimeout):
+                await api_helpers.execute_gemini_call(
+                    client, request.model, lambda _: [], {}, request)
+
+        self.assertEqual(generate.await_count, 1)
+
+    def test_negative_and_invalid_retry_settings_remain_safe(self):
+        with patch.object(
+                api_helpers.app_state, "get_setting",
+                side_effect=lambda key, default=None: {
+                    "retry_max": -7, "retry_backoff_seconds": 0,
+                }.get(key, default)):
+            self.assertEqual(api_helpers.get_retry_settings(), (0, 0.0))
+
+        with patch.object(
+                api_helpers.app_state, "get_setting",
+                side_effect=lambda key, default=None: {
+                    "retry_max": "not-an-integer", "retry_backoff_seconds": 0,
+                }.get(key, default)):
+            self.assertEqual(
+                api_helpers.get_retry_settings()[0],
+                api_helpers.app_config.DEFAULT_SETTINGS["retry_max"],
+            )
+
+    def test_cookie_channel_uses_the_same_unclamped_retry_setting(self):
+        def setting(key, default=None):
+            return {"retry_max": 75, "retry_backoff_seconds": 0}.get(key, default)
+
+        with patch.object(api_helpers.app_state, "get_setting", side_effect=setting):
+            self.assertEqual(cookie_proxy.get_retry_settings(), (75, 0.0))
+
     async def test_sdk_stream_failure_is_reported_and_only_retried_before_output(self):
         for partial in (False, True):
             with self.subTest(partial=partial):

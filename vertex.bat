@@ -1,6 +1,12 @@
 @echo off
 setlocal
 set "VERTEX_SCRIPT=%~dp0windows\vertex.ps1"
+if defined VERTEX_INSTALL_DIR (
+  set "VERTEX_MANAGER_ROOT=%VERTEX_INSTALL_DIR%\manager"
+) else (
+  set "VERTEX_MANAGER_ROOT=%LOCALAPPDATA%\QuickVertexAPI\manager"
+)
+if exist "%VERTEX_MANAGER_ROOT%\windows\vertex.ps1" set "VERTEX_SCRIPT=%VERTEX_MANAGER_ROOT%\windows\vertex.ps1"
 if not exist "%VERTEX_SCRIPT%" (
   echo [ERROR] Missing windows\vertex.ps1. Please extract the complete ZIP first.
   pause
