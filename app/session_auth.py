@@ -146,6 +146,11 @@ class SessionStore:
             if record and record.get("persistent") is True:
                 self._save_locked()
 
+    def is_remembered(self, token: str) -> bool:
+        with self._lock:
+            record = self._sessions.get(self._token_hash(token), {})
+            return record.get("persistent") is True
+
     def is_valid(self, token: str, api_key: str) -> bool:
         if not token:
             return False

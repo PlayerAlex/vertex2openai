@@ -2,7 +2,7 @@ import secrets
 
 from fastapi import HTTPException, Header
 from typing import Optional
-from config import API_KEY
+from runtime_state import app_state
 
 
 def format_api_key(configured_key):
@@ -32,7 +32,7 @@ def matches_api_key(provided, configured) -> bool:
 
 def validate_api_key(api_key_to_validate: str) -> bool:
     """校验调用本代理服务的 Bearer Token。"""
-    return matches_api_key(api_key_to_validate, API_KEY)
+    return matches_api_key(api_key_to_validate, app_state.get_client_api_key())
 
 
 async def get_api_key(authorization: Optional[str] = Header(None)):

@@ -79,13 +79,16 @@ python -m unittest discover -s tests -t . -v
 http://127.0.0.1:8050
 ```
 
-以后电脑重启后仍双击 **`启动.bat`** 即可；重复启动会识别已运行的服务。更新时双击 **`更新.bat`**，它会下载 `PlayerAlex/vertex2openai` 的最新 `main` 版本、重启服务，并保留 API Key、Google Key、Cookie 和控制台设置。更新失败会自动恢复上一份可用源码。
+启动成功后，命令窗口会持续显示实时日志。**关闭这个窗口或按 Ctrl+C，就会停止服务**；下次再双击 **`启动.bat`** 即可。`查看日志.bat` 也会以这种方式运行服务；如果已有后台实例，会先停止旧实例再打开带日志的新实例。
+
+更新时双击 **`更新.bat`**，它会下载 `PlayerAlex/vertex2openai` 的最新 `main` 版本、重新打开服务与日志窗口，并保留 API Key、Google Key、Cookie 和控制台设置。更新失败会自动恢复上一份可用源码。旧 ZIP 不会自动获得新增 BAT 文件，首次使用这些入口请重新下载并完整解压最新 ZIP。
 
 运行数据默认位于 `%LOCALAPPDATA%\QuickVertexAPI`：`repo` 是托管源码，`venv` 是独立 Python 环境，`data` 保存配置与凭证，`logs` 保存日志。请保留 ZIP 解压后的文件夹作为双击管理入口；移动它不会影响已经安装的配置，更新也不会修改 `data`。首次安装会生成 `ksv-` 开头的客户端 API Key，可在控制台首页直接复制；Google Key 在「通道与凭证」页面填写。
 
-常用命令也可以在仓库根目录的命令提示符中运行：
+常用命令也可以在仓库根目录的命令提示符中运行。`run` 与双击启动相同，关闭日志窗口即停服；`start` 是需要长期后台运行时使用的命令：
 
 ```bat
+vertex.bat run
 vertex.bat start
 vertex.bat stop
 vertex.bat restart
@@ -161,7 +164,11 @@ http://localhost:8050
 
 `CONSOLE_AUTH=local` 仅对直接来自本机 / 私有网段、且以 `localhost` 或内网 IP 访问的请求免登录。公网域名、带转发头的代理访问、跨站浏览器请求仍需登录。局域网其他设备也能管理控制台；需要限制时设 `CONSOLE_AUTH=required`。这不改变 `/v1/*` 接口的 API Key 认证。
 
-需要登录的访问可勾选“记住此设备 30 天”，电脑和手机均适用；普通登录只在当前浏览器会话及 12 小时内有效。设备会话哈希保存在 `STATE_DIR/console_sessions.json`，与配置一起挂载持久化；退出或修改 `API_KEY` 后旧会话失效。首页密钥默认隐藏，不写入浏览器 localStorage。
+需要登录的访问可勾选“记住此设备 30 天”，电脑和手机均适用；普通登录只在当前浏览器会话及 12 小时内有效。设备会话哈希保存在 `STATE_DIR/console_sessions.json`，与配置一起挂载持久化；退出或重新生成客户端密钥后旧会话失效。首页密钥默认隐藏，不写入浏览器 localStorage。
+
+首页 `API Key` 旁的小眼睛可显示或隐藏密钥；点击「重新生成」会产生新的 `ksv-` 密钥，旧密钥立即失效，请同步更新聊天客户端。新密钥保存在 `STATE_DIR/web_state.json`，优先于安装时的环境变量，重启和升级后仍然有效。发起操作的当前控制台继续保持登录，其他远程设备需要重新登录。
+
+「通道与凭证」中的 Express API Key 列表会自动保存输入、启用状态、删除操作和项目识别结果，无需手动保存。看到「已保存」即可使用；保存失败时修改仍留在页面上，可以重试。
 
 容器内置健康检查，可用 `docker compose ps` 查看状态，或访问 `GET /healthz`（无需登录）。该端点只说明本地服务可响应，Google 凭据与模型权限请通过实际请求验证。更新代码后执行 `docker compose up -d --build`，控制台配置继续保存在挂载的 `data/` 中。
 

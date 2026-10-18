@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
     print("🚀 [服务启动] 快速vertex探测型api 已启动（Express API Key / Cookie 直连 双通道）。")
 
     # S-1：默认口令 + 公开托管 + 明文 Cookie 是很危险的组合，必须让人看见。
-    if config.API_KEY == DEFAULT_API_KEY:
+    if app_state.get_client_api_key() == DEFAULT_API_KEY:
         public_host = any(os.environ.get(k) for k in ("SPACE_ID", "SPACE_HOST", "HF_SPACE_ID"))
         if public_host and os.environ.get("ALLOW_DEFAULT_KEY", "").lower() not in ("1", "true", "yes"):
             raise RuntimeError(
@@ -121,7 +121,7 @@ LOGIN_LOCK_MAX_SECONDS = 300
 
 
 def _issue_session(remember: bool = False) -> str:
-    return _session_store.issue(config.API_KEY, remember=remember)
+    return _session_store.issue(app_state.get_client_api_key(), remember=remember)
 
 
 def _revoke_session(token: str) -> None:
@@ -132,7 +132,16 @@ def _is_authed(request: Request) -> bool:
     if is_local_console_request(request, config.CONSOLE_AUTH):
         return True
     token = request.cookies.get(AUTH_COOKIE, "")
-    return _session_store.is_valid(token, config.API_KEY)
+    return _session_store.is_valid(token, app_state.get_client_api_key())
+
+
+def _require_same_origin_console_action(request: Request) -> None:
+    """Reject browser requests that visibly originate from another site."""
+    if request.headers.get("sec-fetch-site", "").lower() == "cross-site":
+        raise HTTPException(status_code=403, detail="请从当前控制台页面执行此操作")
+    origin = request.headers.get("origin")
+    if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
+        raise HTTPException(status_code=403, detail="请从当前控制台页面执行此操作")
 
 
 def _login_retry_after(ip: str) -> int:
@@ -358,6 +367,10 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .connection-row { display:flex; align-items:center; gap:8px; }
   .connection-row .inp { min-width:0; flex:1; height:44px; background:#fff; }
   .connection-row button { flex-shrink:0; min-height:44px; padding:8px 14px; font-size:13px; }
+  .connection-key-heading{display:flex;align-items:center;gap:4px;margin-bottom:6px;min-height:28px}
+  .connection-key-eye{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:5px;border:0;border-radius:6px;background:transparent;color:#64748b;cursor:pointer}
+  .connection-key-eye:hover{background:#e2e8f0;color:#334155}.connection-key-eye:focus-visible{outline:2px solid #6366f1;outline-offset:2px}.connection-key-eye:disabled{opacity:.4;cursor:default}
+  .connection-key-heading .key-regenerate{margin-left:auto;padding:3px 8px;font-size:12px;min-height:28px}
   .log-status-dot { width:8px; height:8px; border-radius:999px; background:#a1a1aa; display:inline-block; }
   .log-status-dot.connected { background:#10b981; }
   .log-status-dot.retrying { background:#f59e0b; }
@@ -388,7 +401,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     .cookie-save-row { align-items:flex-start!important; flex-direction:column; }
     .cookie-save-row .btn { width:100%; }
     #view-logs .log-toolbar { align-items:flex-start; flex-wrap:wrap; }
-    .connection-row{display:grid;grid-template-columns:minmax(0,1fr) auto}.connection-row .btn{grid-column:1/-1}.connection-row .connection-key-action{grid-column:auto}.metric-card{padding:14px!important}.metric-card .val{font-size:22px}.metric-icon{margin-bottom:8px}.params-section-head{align-items:flex-start!important}.params-section-head>span.text-xs{display:none}.settings-actions{align-items:stretch;flex-direction:column}.settings-actions .btn{width:100%}.model-scope-select{min-width:0!important;max-width:100%}.toast{bottom:82px;max-width:calc(100vw - 24px);text-align:center}
+    .connection-row{display:grid;grid-template-columns:minmax(0,1fr) auto}.connection-row button{padding-left:10px;padding-right:10px}.metric-card{padding:14px!important}.metric-card .val{font-size:22px}.metric-icon{margin-bottom:8px}.params-section-head{align-items:flex-start!important}.params-section-head>span.text-xs{display:none}.settings-actions{align-items:stretch;flex-direction:column}.settings-actions .btn{width:100%}.model-scope-select{min-width:0!important;max-width:100%}.toast{bottom:82px;max-width:calc(100vw - 24px);text-align:center}
   }
 </style>
 </head>
@@ -441,12 +454,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       </div>
       <div id="h_connection" class="helpbox mb-3">在聊天客户端选择 OpenAI 兼容接口，填入下方地址和密钥。这份密钥用于连接本服务；Google Key 在「通道与凭证」中管理。</div>
       <div class="mb-3">
-        <label for="client-api-url" class="lbl block mb-1.5">API 地址 · Base URL</label>
+        <label for="client-api-url" class="lbl block mb-1.5">Base URL</label>
         <div class="connection-row"><input id="client-api-url" class="inp log" readonly spellcheck="false"><button class="btn-ghost" onclick="copyConnectionField('client-api-url',this)">复制地址</button></div>
       </div>
       <div>
-        <label for="client-api-key" class="lbl block mb-1.5">API 密钥 · API Key</label>
-        <div class="connection-row"><input id="client-api-key" class="inp log" type="password" readonly autocomplete="off" placeholder="正在加载…" spellcheck="false"><button id="client-key-toggle" class="btn-ghost connection-key-action" aria-label="显示 API 密钥" aria-pressed="false" onclick="toggleClientKey()" disabled>显示</button><button class="btn connection-key-action" onclick="copyConnectionField('client-api-key',this)" disabled>复制密钥</button></div>
+        <div class="connection-key-heading"><label for="client-api-key" class="lbl">API Key</label><button id="client-key-toggle" type="button" class="connection-key-eye connection-key-action" aria-label="显示 API 密钥" title="显示 API 密钥" aria-pressed="false" onclick="toggleClientKey()" disabled><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path id="client-key-eye-slash" class="hidden" d="m3 3 18 18"/></svg></button><button id="client-key-regenerate" class="btn-ghost connection-key-action key-regenerate" onclick="regenerateClientKey(this)" disabled>重新生成</button></div>
+        <div class="connection-row"><input id="client-api-key" class="inp log" type="password" readonly autocomplete="off" placeholder="正在加载…" spellcheck="false"><button class="btn connection-key-action" onclick="copyConnectionField('client-api-key',this)" disabled>复制密钥</button></div>
       </div>
       <p id="connection-status" class="status-note mt-2" role="status" aria-live="polite"></p>
     </div>
@@ -507,12 +520,11 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
           <span id="keys-count" class="pill" style="text-transform:none">0 个</span>
           <button id="btn-probe-all" class="btn-ghost px-3 py-1.5 text-sm" onclick="probeAllKeys(this)">🔎 探测全部项目</button>
           <button class="btn-ghost px-3 py-1.5 text-sm" onclick="addKeyRow()">＋ 添加 Key</button>
-          <button id="btn-save-keys" class="btn px-4 py-1.5 text-sm" onclick="saveExpressKeys(this)">保存 Key 列表</button>
         </div>
       </div>
       <div id="h_keys" class="helpbox">
         可添加多个 Google 账号的 Key；轮询方式在「全局设置」中调整。<br>
-        <b>热编辑</b>：增删改后点「保存 Key 列表」立即生效，<b>不需要重启服务</b>。列表存在 <code>web_state.json</code>（文件权限 0600）。<br>
+        <b>自动保存</b>：输入完成后自动保存；启用、删除和项目识别结果也会自动保存，<b>不需要重启服务</b>。保存失败时会提示重试。<br>
         <b>Project ID</b>：每个 Key 属于不同的谷歌账号/项目，标准模式的 location 钉定会用<b>这个 Key 自己的项目</b>拼资源路径 <code>projects/{project}/locations/{location}/...</code>，不再共用 Cookie 通道那份全局 Project ID。<br>
         启动时自动探测填入（用不存在的模型名调一次 generateContent，从上游 404 错误信息里解析项目，不消耗配额；来源显示 <code>auto</code>）；也可点每行的「探测」单独重探，或直接手填（来源变 <code>manual</code>，探测不会覆盖手填值）。<br>
         探测失败不影响调用：拿不到项目就退回全局 Project ID，再退回裸模型名（旧行为）。<br>
@@ -520,17 +532,17 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <b>明文显示</b>：本列表展示完整 Key；运行日志里只显示掩码。
       </div>
       <div id="keys-list" class="space-y-2"></div>
-      <p id="keys-empty" class="text-xs text-neutral-500 mt-2 hidden">当前没有任何 Express Key。点「＋ 添加 Key」粘贴一个，再点「保存 Key 列表」。</p>
+      <p id="keys-empty" class="text-xs text-neutral-500 mt-2 hidden">还没有添加 Key。点「＋ 添加 Key」后粘贴，系统会自动保存。</p>
       <div id="setup-guide" class="setup-callout mt-3 hidden">
         <div class="text-sm font-semibold text-indigo-950">先添加一个 Express API Key</div>
-        <p class="text-xs text-indigo-800 mt-1">添加 Google Key 并保存，即可开始使用。</p>
+        <p class="text-xs text-indigo-800 mt-1">粘贴 Google Key，等待显示「已保存」后即可使用。</p>
         <div class="flex gap-2 mt-3 flex-wrap">
           <label for="api-address" class="sr-only">OpenAI 兼容 API 地址</label>
           <input id="api-address" class="inp log" readonly style="flex:1;min-width:210px">
           <button class="btn-ghost px-3 py-2 text-sm" onclick="copyApiAddress(this)">复制 API 地址</button>
         </div>
       </div>
-      <div id="keys-dirty" class="status-note mt-2" aria-live="polite"></div>
+      <div class="flex items-center gap-2 mt-2"><span id="keys-dirty" class="status-note" role="status" aria-live="polite"></span><button id="keys-save-retry" class="btn-ghost hidden" onclick="saveExpressKeys()">重试保存</button></div>
     </div>
 
     <div id="cookie-box" class="card p-5 hidden">
@@ -540,7 +552,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 	      <label class="lbl mb-2 block" for="project-input">Google Cloud Project ID</label>
       <input id="project-input" class="inp mb-3" placeholder="可直接粘贴含 ?project=xxx 的整条 URL，自动提取">
 	      <div class="cookie-save-row flex items-center justify-between gap-3">
-	        <button id="btn-save-cookie" class="btn px-4 py-2 text-sm" onclick="saveCookie(this)">保存并激活</button>
+	        <button id="btn-save-cookie" class="btn px-4 py-2 text-sm" onclick="saveCookie(this)">保存并启用</button>
       </div>
 	      <div id="cookie-dirty" class="status-note mt-2" aria-live="polite"></div>
     </div>
@@ -558,8 +570,8 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       </div>
       <div id="h_model_scope" class="helpbox">选择「＊ 全局默认」可设置所有模型的默认值；选择具体模型可保存该模型专属值，保存后模型名会出现 ★。优先级为：<b>单次请求 &gt; 模型专属 &gt; 全局默认 &gt; 内置</b>，最终仍按模型能力自动裁剪。重试、弱网续传等服务级选项请到独立的「全局设置」页面。</div>
       <div class="flex items-center gap-2 mt-3 flex-wrap">
-	        <button id="btn-scope-save" class="btn px-4 py-2 text-sm" onclick="saveModelOverride(this)">💾 保存为该模型专属</button>
-	        <button id="btn-scope-clear" class="btn-ghost px-4 py-2 text-sm" onclick="clearModelOverride(this)">清除该模型专属</button>
+	        <button id="btn-scope-save" class="btn px-4 py-2 text-sm" onclick="saveModelOverride(this)">💾 保存模型设置</button>
+	        <button id="btn-scope-clear" class="btn-ghost px-4 py-2 text-sm" onclick="clearModelOverride(this)">恢复模型默认设置</button>
         <span id="ov-hint" class="text-xs text-neutral-500"></span>
 	        <span id="params-dirty" class="status-note" aria-live="polite"></span>
       </div>
@@ -574,7 +586,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       <!-- 思考 -->
       <div class="card p-5">
 	        <div class="help-title text-sm font-semibold mb-3">思考强度<button type="button" class="helpq" aria-label="查看思考强度说明" aria-expanded="false" aria-controls="h_native_thinking" onclick="hlp(this,'h_native_thinking')">!</button></div>
-	        <div id="h_native_thinking" class="helpbox mb-3"><b>原生思考控制</b>：<b>跟随请求</b>使用前端发来的 <code>reasoning_effort</code>。<b>关闭原生思考</b>会忽略前端参数，压到<span id="ntm-floor">该模型最低档</span>并从响应中移除思考块，适合让角色扮演预设接管思维链。<b>强制用上方档位</b>会忽略前端并使用你选的档位，同时返回原生思考。只想改变一个模型时，请保存为该模型专属。</div>
+	        <div id="h_native_thinking" class="helpbox mb-3"><b>原生思考控制</b>：<b>跟随请求</b>使用前端发来的 <code>reasoning_effort</code>。<b>关闭原生思考</b>会忽略前端参数，压到<span id="ntm-floor">该模型最低档</span>并从响应中移除思考块，适合让角色扮演预设接管思维链。<b>强制用上方档位</b>会忽略前端并使用你选的档位，同时返回原生思考。只想改变一个模型时，请保存模型设置。</div>
         <div class="mb-3" id="wrap-g3level">
           <div class="lbl mb-1">Gemini 3.x 思考档位（thinking_level）</div>
           <select id="thinking_g3_level" class="inp"><option value="">自动（按模型默认）</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>
@@ -593,7 +605,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       <!-- 生图 -->
       <div class="card p-5">
 	        <div class="help-title text-sm font-semibold mb-3">生图<button type="button" class="helpq" aria-label="查看生图设置说明" aria-expanded="false" aria-controls="h_image_settings" onclick="hlp(this,'h_image_settings')">!</button></div>
-	        <div id="h_image_settings" class="helpbox mb-3"><b>生图下发 system 指令</b>：关闭时（默认）生图模型会<b>丢弃 system 提示词</b>——你写的画风、构图要求全部不生效。开启后 system 会随生图请求一起下发。<br>实测对照（system=“纯黑白线稿，只有线条”，user=“画一只猫”）：<b>关 → 彩色写实照片；开 → 黑白线稿</b>。默认关只是为了不改变旧行为，<b>用生图建议打开</b>。<br><br><b>生图也注入预填充</b>：默认关时，下面“注入预填充”的内容<b>不会</b>发给生图模型。预填充对生图有很强的引导力；角色扮演用的预填充也可能让模型改吐文字而不出图。建议配合“保存为该模型专属”，给生图模型单独配置合适的预填充。生图模型会自动改用一句<b>要图片</b>的续写指令；若你自定义了“续写指令模板”，则以自定义内容为准，需写明“直接输出图片”。</div>
+	        <div id="h_image_settings" class="helpbox mb-3"><b>生图下发 system 指令</b>：关闭时（默认）生图模型会<b>丢弃 system 提示词</b>——你写的画风、构图要求全部不生效。开启后 system 会随生图请求一起下发。<br>实测对照（system=“纯黑白线稿，只有线条”，user=“画一只猫”）：<b>关 → 彩色写实照片；开 → 黑白线稿</b>。默认关只是为了不改变旧行为，<b>用生图建议打开</b>。<br><br><b>生图也注入预填充</b>：默认关时，下面“注入预填充”的内容<b>不会</b>发给生图模型。预填充对生图有很强的引导力；角色扮演用的预填充也可能让模型改吐文字而不出图。建议配合“保存模型设置”，给生图模型单独配置合适的预填充。生图模型会自动改用一句<b>要图片</b>的续写指令；若你自定义了“续写指令模板”，则以自定义内容为准，需写明“直接输出图片”。</div>
         <div class="mb-3">
           <div class="lbl mb-1">默认分辨率（image_size）</div>
           <select id="image_size" class="inp"><option value="512">512</option><option value="1K">1K</option><option value="2K">2K</option><option value="4K">4K</option></select>
@@ -632,7 +644,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       <!-- 控制台注入（可按模型覆盖） -->
       <div class="card p-5">
 	        <div class="help-title text-sm font-semibold mb-3">注入与续写<button type="button" class="helpq" aria-label="查看注入与续写说明" aria-expanded="false" aria-controls="h_injection_scope" onclick="hlp(this,'h_injection_scope')">!</button></div>
-	        <div id="h_injection_scope" class="helpbox mb-3">留空时不注入内容，续写指令使用内置默认。可为不同模型分别保存。<br><br><b>附加 system 指令</b>：追加到客户端 system 之<b>后</b>，两条通道都生效。给 <b>RikkaHub 这类轻量前端</b>用；酒馆用户通常留空，且 <code>{{getvar::xx}}</code> 这类宏在代理侧不会解析。<br><br><b>注入预填充</b>：客户端没有发送预填充时，代理自动补一条 assistant 消息，然后按「全局设置」里的“预填充兼容模式”处理。客户端自带预填充、请求带函数调用、生图模型默认跳过；留空则不启用。生图模型还需打开“生图也注入预填充”。<br><br><b>续写指令模板</b>：留空使用内置默认。智能模式下它是续写指令；保留模型轮次模式下它是末尾推动语。生图模型在留空时会自动换用“直接输出图片”的指令；自定义后生图模型也会使用该内容。<br><br><b>思维链守卫</b>：检测到预填充中未闭合的思考标签时，要求模型先完成标签内的思考并闭合，再输出正文。普通预填充和生图模型不受影响。</div>
+	        <div id="h_injection_scope" class="helpbox mb-3">留空时不注入内容，续写指令使用内置默认。可为不同模型分别保存。<br><br><b>附加 system 指令</b>：追加到客户端 system 之<b>后</b>，两条通道都生效。给 <b>RikkaHub 这类轻量前端</b>用；酒馆用户通常留空，且 <code>{{getvar::xx}}</code> 这类宏在代理侧不会解析。<br><br><b>注入预填充</b>：客户端没有发送预填充时，代理自动补一条 assistant 消息，然后按「全局设置」里的“回复开头的处理方式”处理。客户端自带预填充、请求带函数调用、生图模型默认跳过；留空则不启用。生图模型还需打开“生图也注入预填充”。<br><br><b>续写指令模板</b>：留空使用内置默认。智能模式下它是续写指令；保留模型轮次模式下它是末尾推动语。生图模型在留空时会自动换用“直接输出图片”的指令；自定义后生图模型也会使用该内容。<br><br><b>思维链守卫</b>：检测到预填充中未闭合的思考标签时，要求模型先完成标签内的思考并闭合，再输出正文。普通预填充和生图模型不受影响。</div>
         <div class="space-y-3">
 
           <div>
@@ -661,10 +673,10 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   <section id="view-settings" class="hidden">
     <div class="card settings-primary p-5 mb-4">
       <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
-	        <div><div class="help-title text-base font-semibold">重试与退避<button type="button" class="helpq" aria-label="查看重试设置说明" aria-expanded="false" aria-controls="h_retry" onclick="hlp(this,'h_retry')">!</button></div><div class="text-xs text-neutral-500 mt-1">上游繁忙时自动重试</div></div>
+	        <div><div class="help-title text-base font-semibold">自动重试<button type="button" class="helpq" aria-label="查看重试设置说明" aria-expanded="false" aria-controls="h_retry" onclick="hlp(this,'h_retry')">!</button></div><div class="text-xs text-neutral-500 mt-1">上游繁忙时自动重试</div></div>
         <span class="pill pill-accent">常用设置</span>
       </div>
-      <div id="h_retry" class="helpbox mb-4">重试次数是<b>首次请求失败后的额外尝试次数</b>，范围 0–50，不包含首次请求。退避间隔范围 0–120 秒，仅对可重试错误生效。</div>
+      <div id="h_retry" class="helpbox mb-4">重试次数是<b>首次请求失败后再尝试的次数</b>，范围 0–50；填 0 表示不重试。重试间隔范围 0–120 秒，仅在服务繁忙等可恢复的错误下重试。</div>
       <div class="grid grid-cols-2 gap-3 mb-4">
         <div><label class="lbl mb-1 block" for="retry_max">失败后重试次数</label><input id="retry_max" type="number" min="0" max="50" step="1" class="inp"></div>
         <div><label class="lbl mb-1 block" for="retry_backoff_seconds">重试间隔（秒）</label><input id="retry_backoff_seconds" type="number" min="0" max="120" step="0.5" class="inp"></div>
@@ -677,10 +689,10 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 	    <div class="grid md:grid-cols-2 gap-4">
       <div class="card p-5">
 	            <div class="setting-choice-row flex items-center justify-between gap-3">
-		              <span class="help-title text-sm">标准模式 location<button type="button" class="helpq" aria-label="查看请求区域说明" aria-expanded="false" aria-controls="h_loc" onclick="hlp(this,'h_loc')">!</button></span>
+		              <span class="help-title text-sm">API 请求区域<button type="button" class="helpq" aria-label="查看请求区域说明" aria-expanded="false" aria-controls="h_loc" onclick="hlp(this,'h_loc')">!</button></span>
               <select id="express_location" class="inp" style="max-width:180px">
-            <option value="global">global（默认·推荐）</option>
-            <option value="">默认（后端自选·旧行为）</option>
+            <option value="global">全球（推荐）</option>
+            <option value="">由 Google 自动选择</option>
             <optgroup label="美国">
               <option value="us-central1">us-central1（爱荷华）</option>
               <option value="us-east1">us-east1（南卡）</option>
@@ -720,63 +732,55 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
             </optgroup>
           </select>
             </div>
-            <div id="h_loc" class="helpbox">
-              <b>作用</b>：决定标准（Express）模式请求发到哪个区域，解决“偶发 404、报错里出现没见过的区域”。<br><br>
-              <b>为什么会 404</b>：不指定时由 Google 后端自己挑区域，可能挑到<b>不提供该模型</b>的区域。<br>
-              实测同一个 Key、同一个模型：<code>gemini-2.5-pro</code> 不指定 → 被路由到新加坡区域报 404；选 <code>global</code> → <b>正常出文</b>。<br><br>
-              <b>默认 global</b>：多数 Gemini 模型只在 global 提供，选具体区域反而可能 404，按需再换。<br><br>
-              <b>用哪个项目</b>：自动使用「通道与凭证」里填的 Project ID（或环境变量 <code>GOOGLE_PROJECT_ID</code>）。两者都没有时自动退回不指定区域的旧方式。<br><br>
-              <b>注意</b>：该项目必须是这个 API Key <b>有权、且已开启计费</b>的项目。<br><br>
-              <b>失败会自动兜底</b>：若上游回“模型不存在 / 需要计费”，代理会<b>自动改回不指定区域重试一次</b>，并在运行日志说明怎么修——所以这个设置不会让原本能用的配置变得不能用。
-            </div>
+            <div id="h_loc" class="helpbox">选择 API Key 通道请求使用的 Google 服务区域，通常保留「全球」即可。<b>这不会改变本机的出口 IP。</b><br><br>请求优先使用当前 Key 对应的 Project ID；找不到项目时会使用全局项目设置，再退回由 Google 自动路由。指定的项目必须允许当前 Key 访问。<br><br>部分模型只在特定区域可用。指定区域返回模型不存在或计费错误时，会尝试不指定区域重新请求，并在日志中说明原因。</div>
           </div>
 
       <!-- 输入图压缩 -->
       <div class="card p-5">
         <div class="flex items-center justify-between mb-3">
-          <div class="text-sm font-semibold">输入图片压缩</div>
+          <div class="text-sm font-semibold">发送前压缩图片</div>
           <label class="switch"><input type="checkbox" id="img_compress_enabled"><span class="slider"></span></label>
         </div>
         <div class="grid grid-cols-3 gap-3">
-          <div><div class="lbl mb-1">最长边(px)</div><input id="img_compress_max_dim" type="number" class="inp"></div>
-          <div><div class="lbl mb-1">阈值(MB)</div><input id="img_compress_max_mb" type="number" step="0.1" class="inp"></div>
-          <div><div class="lbl mb-1">JPEG质量</div><input id="img_compress_quality" type="number" class="inp"></div>
+          <div><div class="lbl mb-1">最长边（像素）</div><input id="img_compress_max_dim" type="number" class="inp"></div>
+          <div><div class="lbl mb-1">超过此大小（MB）</div><input id="img_compress_max_mb" type="number" step="0.1" class="inp"></div>
+          <div><div class="lbl mb-1">图片清晰度</div><input id="img_compress_quality" type="number" class="inp"></div>
         </div>
       </div>
 
       <!-- 开关 -->
       <div class="card p-5">
-	        <div class="help-title text-sm font-semibold mb-3">开关 &amp; 预填充<button type="button" class="helpq" aria-label="查看开关与预填充说明" aria-expanded="false" aria-controls="h_switches" onclick="hlp(this,'h_switches')">!</button></div>
-	        <div id="h_switches" class="helpbox mb-3"><b>假流式</b>：标准通道先完整取回回复，再以流式格式返回；等待期间按心跳间隔发送保活片段。生图模型会自动采用假流式。<br><br><b>弱网续传（服务端缓冲）</b>：上游回复边生成边写入缓冲并发送给客户端，等待期间会持续发送保活心跳。支持续传的客户端可在断线后凭 <code>Last-Event-ID</code> 或 <code>?resume_from=</code> 接着读取；也可轮询 <code>/v1/resumable/{id}</code>。关闭后直接转发。<br><br><b>输出附加安全分</b>：在每条回复正文末尾附一个可折叠块，列出各安全分类的概率与严重度评分。前端若不渲染 HTML，会看到一段 <code>&lt;details&gt;</code> 原文。Cookie 通道开启后会下发 <code>BLOCK_NONE</code> 以获取评分，但仍不拦截。<br><br><b>出站参数调试日志</b>：两条通道都会在运行日志里打印实际发出的思考档位与采样参数，平时可关闭。<br><br><b>Cookie 通道额外诊断</b>：仅对 Cookie 直连通道生效，打印出站 <code>generationConfig</code>；无正文时的原始响应样本始终自动记录。<br><br><b>预填充兼容模式</b>：请求里最后一条 assistant 消息就是预填充。Gemini 3.x 不能以 assistant 结尾，需由代理转换。智能模式把文字并入最后一条 user；保留模型轮次会保留 assistant 并补一条推动语，但可能重复开标签；最小模式只补占位 user，不把预填充拼回输出，可能影响前端标签匹配；关闭则原样发出，3.x 会报 400，且不触发预填充思考压制。2.5 及更早模型使用原生透传。<br><br><b>预填充时压制原生思考</b>：检测到预填充时，把模型原生思维链压到最低并不回传，让预设思维链接管。只有请求真正带预填充时才触发。</div>
+	        <div class="help-title text-sm font-semibold mb-3">回复方式与兼容设置<button type="button" class="helpq" aria-label="查看开关与预填充说明" aria-expanded="false" aria-controls="h_switches" onclick="hlp(this,'h_switches')">!</button></div>
+	        <div id="h_switches" class="helpbox mb-3"><b>等回复生成完再发送（假流式）</b>：先完整获取 Google 的回复，再按流式格式发给客户端。等待时会定期发送保持连接的信号，避免超时；生图模型自动采用此方式。<br><br><b>断线后继续接收回复</b>：临时保存正在生成的回复，支持续传的客户端可以在重连后继续接收。客户端需支持 <code>Last-Event-ID</code>、<code>resume_from</code> 或续传查询接口。缓存时间与数量决定保留多久、最多保留多少条。<br><br><b>多个 Key 轮流使用</b>：开启后依次使用可用 Key；关闭时随机选择。<br><br><b>在回复末尾显示安全评分</b>：附上 Google 返回的内容安全评分；不支持折叠 HTML 的客户端可能直接显示标签。Cookie 通道会请求 <code>BLOCK_NONE</code> 以获取评分。<br><br><b>记录实际请求参数 / 记录 Cookie 请求详情</b>：排查问题时开启，在运行日志中查看实际发给 Google 的参数。后者只影响 Cookie 通道。<br><br><b>回复开头的处理方式</b>：客户端预先指定的 assistant 回复开头称为“预填充”。「自动处理」将它转换为续写指令；「保留回复开头」保留 assistant 消息并补充续写指令；「仅补充用户消息」只补一个占位消息，不把开头拼回输出；「不作处理」原样发送，部分模型会拒绝。<br><br><b>使用预设思考时减少模型思考</b>：只在请求包含预设回复开头时生效，将模型自带的思考降到最低并隐藏，让预设中的思考指令接管。</div>
         <div class="space-y-3">
-          <div class="flex items-center justify-between"><span class="text-sm">假流式（fake streaming）</span><label class="switch"><input type="checkbox" id="fake_streaming"><span class="slider"></span></label></div>
-          <div class="flex items-center justify-between"><span class="text-sm">假流式心跳间隔(秒)</span><input id="fake_streaming_interval" type="number" step="0.5" class="inp" style="width:90px"></div>
+          <div class="flex items-center justify-between"><span class="text-sm">等回复生成完再发送</span><label class="switch"><input type="checkbox" id="fake_streaming"><span class="slider"></span></label></div>
+          <div class="flex items-center justify-between"><span class="text-sm">保持连接间隔（秒）</span><input id="fake_streaming_interval" type="number" step="0.5" class="inp" style="width:90px"></div>
           <div>
-	            <div class="flex items-center justify-between"><span class="text-sm">弱网续传（服务端缓冲）</span><label class="switch"><input type="checkbox" id="resumable_enabled"><span class="slider"></span></label></div>
+	            <div class="flex items-center justify-between"><span class="text-sm">断线后继续接收回复</span><label class="switch"><input type="checkbox" id="resumable_enabled"><span class="slider"></span></label></div>
           </div>
-          <div class="flex items-center justify-between"><span class="text-sm">续传缓冲保留时长(秒)</span><input id="resumable_ttl_seconds" type="number" step="60" class="inp" style="width:90px"></div>
-          <div class="flex items-center justify-between"><span class="text-sm">续传缓冲数量上限</span><input id="resumable_max_streams" type="number" step="10" class="inp" style="width:90px"></div>
-          <div class="flex items-center justify-between"><span class="text-sm">多 Key 轮询（round-robin）</span><label class="switch"><input type="checkbox" id="roundrobin"><span class="slider"></span></label></div>
+          <div class="flex items-center justify-between"><span class="text-sm">回复缓存保留时间（秒）</span><input id="resumable_ttl_seconds" type="number" step="60" class="inp" style="width:90px"></div>
+          <div class="flex items-center justify-between"><span class="text-sm">最多缓存多少条回复</span><input id="resumable_max_streams" type="number" step="10" class="inp" style="width:90px"></div>
+          <div class="flex items-center justify-between"><span class="text-sm">多个 Key 轮流使用</span><label class="switch"><input type="checkbox" id="roundrobin"><span class="slider"></span></label></div>
           <div>
-	            <div class="flex items-center justify-between"><span class="text-sm">输出附加安全分</span><label class="switch"><input type="checkbox" id="safety_score"><span class="slider"></span></label></div>
-          </div>
-          <div>
-	            <div class="flex items-center justify-between"><span class="text-sm">出站参数调试日志</span><label class="switch"><input type="checkbox" id="debug_outbound"><span class="slider"></span></label></div>
+	            <div class="flex items-center justify-between"><span class="text-sm">在回复末尾显示安全评分</span><label class="switch"><input type="checkbox" id="safety_score"><span class="slider"></span></label></div>
           </div>
           <div>
-	            <div class="flex items-center justify-between"><span class="text-sm">Cookie 通道额外诊断</span><label class="switch"><input type="checkbox" id="cookie_debug"><span class="slider"></span></label></div>
+	            <div class="flex items-center justify-between"><span class="text-sm">记录实际请求参数</span><label class="switch"><input type="checkbox" id="debug_outbound"><span class="slider"></span></label></div>
+          </div>
+          <div>
+	            <div class="flex items-center justify-between"><span class="text-sm">记录 Cookie 请求详情</span><label class="switch"><input type="checkbox" id="cookie_debug"><span class="slider"></span></label></div>
           </div>
 
 
           <div class="pt-1 border-t border-neutral-100"></div>
-          <div class="text-xs font-semibold text-neutral-500 pt-1">预填充兼容</div>
+          <div class="text-xs font-semibold text-neutral-500 pt-1">预设回复开头</div>
           <div>
-	            <div class="flex items-center justify-between gap-3"><span class="text-sm">预填充兼容模式</span>
-              <select id="prefill_mode" class="inp" style="width:150px"><option value="smart">智能（默认）</option><option value="keep_turn">保留模型轮次</option><option value="minimal">最小</option><option value="off">关闭</option></select>
+	            <div class="flex items-center justify-between gap-3"><span class="text-sm">回复开头的处理方式</span>
+              <select id="prefill_mode" class="inp" style="width:150px"><option value="smart">自动处理（推荐）</option><option value="keep_turn">保留回复开头</option><option value="minimal">仅补充用户消息</option><option value="off">不作处理</option></select>
             </div>
           </div>
           <div>
-	            <div class="flex items-center justify-between"><span class="text-sm">预填充时压制原生思考</span><label class="switch"><input type="checkbox" id="prefill_suppress_thinking"><span class="slider"></span></label></div>
+	            <div class="flex items-center justify-between"><span class="text-sm">使用预设思考时减少模型思考</span><label class="switch"><input type="checkbox" id="prefill_suppress_thinking"><span class="slider"></span></label></div>
           </div>
 
         </div>
@@ -796,7 +800,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <span class="ml-2 text-xs text-neutral-400 log">terminal · 实时监控</span>
 	        <span class="ml-auto text-xs text-neutral-500 flex items-center gap-1.5"><span id="log-status-dot" class="log-status-dot"></span><span id="log-status">未连接</span></span>
 	        <button id="log-pause" class="btn-ghost px-2.5 py-1 text-xs" onclick="toggleLogPause()">暂停自动滚动</button>
-	        <button class="btn-ghost px-2.5 py-1 text-xs" onclick="clearLogs()">清屏</button>
+	        <button class="btn-ghost px-2.5 py-1 text-xs" onclick="clearLogs()">清空显示</button>
       </div>
       <div id="logwin" class="log p-4 space-y-1.5 overflow-y-auto bg-[#fbfbfb]" style="height:60vh"></div>
     </div>
@@ -840,8 +844,21 @@ async function pending(btn,label,work){
 }
 function errorToast(e,fallback='操作失败'){ if(e && e.status===401) return; toast('❌ '+(e?.message||fallback),'error'); }
 function showConnectionInfo(){ switchTab('overview'); $('connection-card').scrollIntoView({behavior:'smooth',block:'start'}); }
-function setClientKeyVisible(visible){ $('client-api-key').type=visible?'text':'password'; const btn=$('client-key-toggle'); btn.textContent=visible?'隐藏':'显示'; btn.setAttribute('aria-label',visible?'隐藏 API 密钥':'显示 API 密钥'); btn.setAttribute('aria-pressed',String(visible)); }
+function setClientKeyVisible(visible){ $('client-api-key').type=visible?'text':'password'; const btn=$('client-key-toggle'), label=visible?'隐藏 API 密钥':'显示 API 密钥'; btn.setAttribute('aria-label',label); btn.title=label; btn.setAttribute('aria-pressed',String(visible)); $('client-key-eye-slash').classList.toggle('hidden',!visible); }
 function toggleClientKey(){ setClientKeyVisible($('client-api-key').type==='password'); }
+async function regenerateClientKey(btn){
+  const confirmed=confirm('重新生成后，旧 API 密钥会立即失效，使用旧密钥的客户端必须更新；其他远程控制台也需要重新登录。确定继续吗？');
+  if(!confirmed) return;
+  await pending(btn,'生成中…',async()=>{
+    let d;
+    try{ d=await api('/api/client-config/regenerate',{method:'POST'}); }
+    catch(e){ errorToast(e,'重新生成失败'); return; }
+    $('client-api-key').value=d.api_key;
+    setClientKeyVisible(false);
+    $('connection-status').textContent='新密钥已生成，旧密钥已失效，请更新使用本服务的客户端。';
+    toast('新 API 密钥已生成，请及时复制','success');
+  });
+}
 async function loadClientConfig(){
   $('client-api-url').value=location.origin+'/v1';
   try{
@@ -936,7 +953,7 @@ async function saveCookie(btn){
   const m=pid.match(/[?&]project=([^&]+)/)||pid.match(/\/projects\/([^\/]+)/); if(m) pid=m[1];
   $('cookie-input').value=ck; $('project-input').value=pid;
   if(!pid){ toast('请填写 Project ID'); return; }
-  await pending(btn,'正在保存…',async()=>{ try{ const d=await api('/api/cookie',{method:'POST',body:JSON.stringify({cookie:ck,project_id:pid})}); dirtyCookie=false; updateDirtyUI(); toast(d.message||'已保存并激活','success'); }catch(e){ errorToast(e,'保存 Cookie 失败'); } });
+  await pending(btn,'正在保存…',async()=>{ try{ const d=await api('/api/cookie',{method:'POST',body:JSON.stringify({cookie:ck,project_id:pid})}); dirtyCookie=false; updateDirtyUI(); toast(d.message||'已保存并启用','success'); }catch(e){ errorToast(e,'保存 Cookie 失败'); } });
 }
 async function loadRuntime(){
   try{
@@ -957,7 +974,8 @@ async function loadRuntime(){
 }
 
 /* ---------- Express Key 列表（多账号，热编辑） ---------- */
-let KEYS = [];
+let KEYS = [], keySaveTimer=null, keySaving=false, keyRevision=0, keySaveState='idle', keyProbeAll=false;
+function scheduleKeysSave(delay=650){ clearTimeout(keySaveTimer); keySaveTimer=setTimeout(saveExpressKeys,delay); }
 function esc(v){ return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function keySrcPill(rec){
   if(rec.project_source==='auto') return '<span class="pill" style="text-transform:none">来源 auto</span>';
@@ -974,7 +992,7 @@ function applyProbeResult(hit,res){
   if(hit.project_source==='manual'){
     hit._msg='已保留手填 Project ID，未用自动结果覆盖';hit._msg_ok=true;hit._status='skipped_manual';return 'skipped_manual';
   }
-  if(res.project_id){if(hit.project_id!==res.project_id) dirtyKeys=true;hit.project_id=res.project_id;hit.project_source='auto';}
+  if(res.project_id){hit.project_id=res.project_id;hit.project_source='auto';hit.detected_at=res.detected_at||Date.now()/1000;markKeysDirty();}
   hit._msg=res.message||'';hit._msg_ok=!!res.ok;hit._status=res.status||'';return hit._status;
 }
 function renderKeys(){
@@ -1001,7 +1019,6 @@ function renderKeys(){
   $('setup-guide').classList.toggle('hidden', KEYS.length>0);
   $('api-address').value=location.origin+'/v1';
   const probing=KEYS.some(rec=>rec._probing);
-  $('btn-save-keys').disabled=probing;
   $('btn-probe-all').disabled=probing;
   updateDirtyUI();
 }
@@ -1018,22 +1035,34 @@ function collectKeys(){
   });
   return KEYS.filter(r=>r.key);
 }
-function markKeysDirty(){ dirtyKeys=true; updateDirtyUI(); }
-function addKeyRow(){ collectKeys(); KEYS.push({key:'',project_id:'',project_source:'',enabled:true}); markKeysDirty(); renderKeys(); setTimeout(()=>$('key-'+(KEYS.length-1))?.focus(),0); }
-function removeKeyRow(i){ collectKeys(); KEYS.splice(i,1); markKeysDirty(); renderKeys(); }
-async function loadExpressKeys(){
+function markKeysDirty(delay=650){ dirtyKeys=true; keyRevision++; keySaveState='pending'; updateDirtyUI(); scheduleKeysSave(delay); }
+function addKeyRow(){ collectKeys(); KEYS.push({key:'',project_id:'',project_source:'',enabled:true}); keyRevision++; renderKeys(); setTimeout(()=>$('key-'+(KEYS.length-1))?.focus(),0); }
+function removeKeyRow(i){ collectKeys(); if(KEYS[i]?.key&&!confirm('删除这个 Key？删除后会立即停止使用它。')) return; KEYS.splice(i,1); markKeysDirty(0); renderKeys(); }
+async function loadExpressKeys(refresh=false){
+  const revision=keyRevision;
   try{
     const d=await api('/api/express-keys');
-    if(dirtyKeys) return;
-    KEYS=(d.keys||[]).map(r=>Object.assign({},r));
-    renderKeys();
+    if(dirtyKeys||keySaving||revision!==keyRevision||KEYS.some(rec=>rec._probing)||keyProbeAll||$('keys-list').contains(document.activeElement)) return;
+    if(refresh) KEYS.forEach(rec=>{const saved=(d.keys||[]).find(x=>x.key===rec.key);if(saved) Object.assign(rec,saved);});
+    else KEYS=(d.keys||[]).map(r=>Object.assign({},r));
+    if(!$('keys-list').contains(document.activeElement)) renderKeys();
   }catch(e){ errorToast(e,'Key 列表加载失败'); }
 }
-async function saveExpressKeys(btn){
-  if(KEYS.some(rec=>rec._probing)) return;
-  const payload=collectKeys();
-  if(payload.length===0 && !confirm('将保存为“空 Key 列表”。\n保存后即使环境变量 VERTEX_EXPRESS_API_KEY 有值，重启也不会再导入。\n确定吗？')) { renderKeys(); return; }
-  await pending(btn,'正在保存…',async()=>{ try{ const d=await api('/api/express-keys',{method:'POST',body:JSON.stringify({keys:payload})}); KEYS=(d.keys||[]).map(x=>Object.assign({},x)); dirtyKeys=false; renderKeys(); toast('已保存 '+KEYS.length+' 个 Key（已热生效）','success'); }catch(e){ errorToast(e,'保存 Key 失败'); } });
+async function saveExpressKeys(){
+  if(!dirtyKeys||keySaving||keyProbeAll||KEYS.some(rec=>rec._probing)) return;
+  clearTimeout(keySaveTimer);
+  const payload=collectKeys(), revision=keyRevision;
+  keySaving=true;keySaveState='saving';updateDirtyUI();
+  try{
+    const d=await api('/api/express-keys',{method:'POST',body:JSON.stringify({keys:payload})});
+    if(revision===keyRevision){
+      KEYS.forEach(rec=>{const saved=(d.keys||[]).find(x=>x.key===rec.key);if(saved) Object.assign(rec,saved);});
+      dirtyKeys=false;keySaveState='saved';
+      if(!$('keys-list').contains(document.activeElement)&&!KEYS.some(rec=>rec._probing)&&!keyProbeAll) renderKeys();
+      setTimeout(()=>loadExpressKeys(true),2500);
+    }
+  }catch(e){keySaveState='error';errorToast(e,'自动保存失败，修改仍保留在页面上');}
+  finally{keySaving=false;updateDirtyUI();if(dirtyKeys&&revision!==keyRevision) scheduleKeysSave();}
 }
 async function probeOneKey(i,btn){
   collectKeys();
@@ -1049,12 +1078,14 @@ async function probeOneKey(i,btn){
     else if(res.ok&&res.project_id) toast('已识别项目：'+res.project_id,'success');
     else toast('❌ '+(res.message||'探测失败'),'error');
   }catch(e){ errorToast(e,'探测失败'); }
-  finally{ collectKeys();rec._probing=false;renderKeys(); }
+  finally{ collectKeys();rec._probing=false;renderKeys();if(dirtyKeys) scheduleKeysSave(0); }
 }
 async function probeAllKeys(btn){
   if(KEYS.some(rec=>rec._probing)) return;
   const draft=collectKeys(); if(!draft.length){toast('请先添加 Key');return;}
+  keyProbeAll=true;
   await pending(btn,'正在探测 '+draft.length+' 个…',async()=>{ try{ const d=await api('/api/express-keys/probe',{method:'POST',body:JSON.stringify({keys:draft.map(x=>({key:x.key})),force:true})}); const results=d.results||[]; let recognized=0,failed=0; results.forEach(res=>{ const hits=KEYS.filter(x=>x.key===res.key); if(!hits.length){failed++;return;} hits.forEach(hit=>{const status=applyProbeResult(hit,res);if(status==='skipped_manual') return;if(res.ok&&res.project_id) recognized++;else failed++;}); }); const skipped=KEYS.filter(x=>draft.includes(x)&&x.project_source==='manual').length; renderKeys(); const summary=`探测完成：识别 ${recognized}，保留手填 ${skipped}，失败 ${failed}`; toast(summary,failed?'error':(recognized?'success':'info')); }catch(e){ errorToast(e,'探测失败'); } });
+  keyProbeAll=false;if(dirtyKeys) scheduleKeysSave(0);
 }
 
 /* ---------- Params ---------- */
@@ -1110,7 +1141,7 @@ function applyModelParamFields(model){
   const has = !isGlobal && !!OVERRIDES[model] && Object.keys(OVERRIDES[model]).length>0;
   $('ov-badge').classList.toggle('hidden', !has);
   // 保存按钮的落点随作用域切换，避免"看着像全局、存进了专属"（或反过来）
-  $('btn-scope-save').textContent = isGlobal ? '💾 保存为全局默认' : '💾 保存为该模型专属';
+  $('btn-scope-save').textContent = isGlobal ? '💾 保存为全局默认' : '💾 保存模型设置';
   $('btn-scope-clear').classList.toggle('hidden', isGlobal);
   $('ov-hint').textContent = isGlobal
     ? '编辑范围：所有模型默认值'
@@ -1260,7 +1291,9 @@ function toggleLogPause(){ logPaused=!logPaused; $('log-pause').textContent=logP
 function clearLogs(){ logwin.innerHTML=''; recentLogs.clear(); recentLogQueue.length=0; toast('日志已清空'); }
 
 function updateDirtyUI(){
-  $('keys-dirty').textContent=dirtyKeys?'● Key 列表有未保存修改':''; $('keys-dirty').classList.toggle('unsaved',dirtyKeys);
+  const keyLabels={idle:'自动保存',pending:'等待保存…',saving:'保存中…',saved:'已保存',error:'保存失败，修改尚未保存'};
+  $('keys-dirty').textContent=keyLabels[keySaveState];$('keys-dirty').classList.toggle('unsaved',dirtyKeys);
+  $('keys-save-retry').classList.toggle('hidden',keySaveState!=='error');
   $('cookie-dirty').textContent=dirtyCookie?'● Cookie / Project ID 有未保存修改':''; $('cookie-dirty').classList.toggle('unsaved',dirtyCookie);
   const modelDirty=dirtyModels.has(activeModel);
   $('params-dirty').textContent=modelDirty?'● 当前模型参数未保存':''; $('params-dirty').classList.toggle('unsaved',modelDirty);
@@ -1285,7 +1318,8 @@ $('keys-list').addEventListener('input',e=>{
     rec.project_id=e.target.value.trim(); rec.project_source=rec.project_id?'manual':'';
   }
   markKeysDirty();
-}); $('keys-list').addEventListener('change',markKeysDirty);
+}); $('keys-list').addEventListener('change',()=>markKeysDirty(0));
+window.addEventListener('online',()=>{if(dirtyKeys) scheduleKeysSave(0);});
 ['cookie-input','project-input'].forEach(id=>$(id).addEventListener('input',()=>{dirtyCookie=true;updateDirtyUI();}));
 $('view-params').addEventListener('input',e=>{ if(e.target.id==='model-sel'||!PER_MODEL_KEYS.includes(e.target.id)) return; dirtyModels.add(activeModel);MODEL_DRAFTS[activeModel]=collectModelPatch();updateDirtyUI(); });
 $('view-params').addEventListener('change',e=>{ if(e.target.id==='model-sel'||!PER_MODEL_KEYS.includes(e.target.id)) return; dirtyModels.add(activeModel);MODEL_DRAFTS[activeModel]=collectModelPatch();updateDirtyUI(); });
@@ -1326,9 +1360,49 @@ async def console_access_status(request: Request):
 @app.get("/api/client-config")
 async def client_config(request: Request, _auth: bool = Depends(require_auth)):
     return JSONResponse(
-        content={"api_key": format_api_key(config.API_KEY), "local_access": is_local_console_request(request, config.CONSOLE_AUTH)},
+        content={"api_key": format_api_key(app_state.get_client_api_key()), "local_access": is_local_console_request(request, config.CONSOLE_AUTH)},
         headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
     )
+
+
+@app.post("/api/client-config/regenerate")
+async def regenerate_client_config(request: Request, _auth: bool = Depends(require_auth)):
+    _require_same_origin_console_action(request)
+    old_session = request.cookies.get(AUTH_COOKIE, "")
+    remember = _session_store.is_remembered(old_session) if old_session else False
+    try:
+        new_key = app_state.rotate_client_api_key()
+    except Exception as exc:
+        print(f"⚠️ [客户端密钥] 重新生成失败：{type(exc).__name__}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "无法保存新密钥，请检查存储空间和文件权限后重试"},
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+        )
+
+    response = JSONResponse(
+        content={"api_key": format_api_key(new_key)},
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
+    # 密钥轮换会使旧会话立即失效；给发起操作的远程控制台续发一枚新会话。
+    if old_session:
+        try:
+            cookie_options = {"max_age": REMEMBERED_SESSION_TTL_SECONDS} if remember else {}
+            response.set_cookie(
+                AUTH_COOKIE,
+                _issue_session(remember=remember),
+                httponly=True,
+                samesite="lax",
+                path="/",
+                secure=(request.url.scheme == "https"
+                        or request.headers.get("x-forwarded-proto", "") == "https"),
+                **cookie_options,
+            )
+        except Exception as exc:
+            # Key 已持久化成功，不能因续签控制台会话失败而向前端误报生成失败。
+            print(f"⚠️ [控制台会话] 密钥轮换后的会话续签失败：{type(exc).__name__}")
+    print("🔐 [客户端密钥] API 密钥已重新生成，旧密钥和旧远程会话已失效。")
+    return response
 
 
 class LoginBody(BaseModel):
@@ -1349,7 +1423,7 @@ async def login(body: LoginBody, request: Request):
         return JSONResponse(status_code=429,
                             content={"error": f"尝试过于频繁，请 {remain} 秒后再试"})
 
-    if matches_api_key(body.password, config.API_KEY):
+    if matches_api_key(body.password, app_state.get_client_api_key()):
         _clear_login_failure(ip)
         resp = JSONResponse(content={"ok": True})
         cookie_options = {
@@ -1512,10 +1586,13 @@ async def save_express_keys(body: ExpressKeysBody, _auth: bool = Depends(require
     """
     if not isinstance(body.keys, list):
         return JSONResponse(status_code=400, content={"error": "keys 必须是数组。"})
-    saved = app_state.set_express_keys(body.keys)
+    try:
+        saved = app_state.set_express_keys(body.keys)
+    except OSError:
+        return JSONResponse(status_code=500, content={"error": "自动保存失败，请检查存储空间和文件权限后重试"})
     express_key_manager.refresh_keys()
     # 新加进来、还没有 Project ID 的 Key 立刻在后台探一次
-    pending = [r["key"] for r in saved if not r.get("project_id")]
+    pending = [r["key"] for r in saved if not r.get("project_id") and r.get("enabled", True)]
     if pending:
         asyncio.create_task(express_key_probe.probe_all(keys=pending))
     payload = _express_keys_payload()

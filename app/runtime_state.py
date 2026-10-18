@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import secrets
 import tempfile
 import threading
 import time
@@ -43,15 +44,20 @@ class AppState:
         except Exception as e:
             print(f"⚠️ [状态管理器] 无法读取持久化配置文件，已自动降级为内存模式: {e}")
 
-    def _save(self) -> None:
-        """原子写：先写同目录临时文件再 os.replace（同一文件系统内是原子操作）。"""
+    def _save(self, state=None) -> bool:
+        """原子写：先写同目录临时文件再 os.replace（同一文件系统内是原子操作）。
+
+        ``state`` 供需要“先落盘、后切换内存”的操作使用。返回值让这类操作
+        能在写盘失败时保持当前内存状态不变；现有调用方仍可忽略返回值。
+        """
+        state_to_save = self._state if state is None else state
         try:
             target_dir = os.path.dirname(STATE_FILE) or "."
             os.makedirs(target_dir, exist_ok=True)
             fd, tmp_path = tempfile.mkstemp(prefix=".web_state-", suffix=".tmp", dir=target_dir)
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(self._state, f, ensure_ascii=False, indent=2)
+                    json.dump(state_to_save, f, ensure_ascii=False, indent=2)
                     f.flush()
                     os.fsync(f.fileno())
                 os.replace(tmp_path, STATE_FILE)
@@ -65,8 +71,10 @@ class AppState:
                 os.chmod(STATE_FILE, 0o600)   # 里面有完整 Google Cookie
             except OSError:
                 pass
+            return True
         except Exception as e:
             print(f"⚠️ [状态管理器] 无法保存状态到磁盘: {e}")
+            return False
 
     def reload(self) -> None:
         """显式从磁盘重载（外部改了文件时用）。"""
@@ -74,6 +82,28 @@ class AppState:
             self._load_from_disk()
 
     # ---------- 通道开关与凭证 ----------
+
+    def get_client_api_key(self) -> str:
+        """返回客户端调用本服务所需的 Key。
+
+        控制台轮换过后以持久化值为准；尚未轮换时兼容环境变量中的旧 Key。
+        """
+        with self._lock:
+            rotated = self._state.get("client_api_key")
+            if isinstance(rotated, str) and rotated:
+                return rotated
+            return app_config.API_KEY
+
+    def rotate_client_api_key(self) -> str:
+        """生成并原子持久化新的客户端 Key，成功后才切换内存状态。"""
+        new_key = f"ksv-{secrets.token_urlsafe(32)}"
+        with self._lock:
+            candidate = copy.deepcopy(self._state)
+            candidate["client_api_key"] = new_key
+            if not self._save(candidate):
+                raise OSError("无法持久化新的客户端 API Key")
+            self._state = candidate
+        return new_key
 
     def enable_web_proxy(self, enabled: bool):
         with self._lock:
@@ -158,9 +188,12 @@ class AppState:
             seen.add(rec["key"])
             clean.append(rec)
         with self._lock:
-            self._state["express_keys"] = clean
-            self._state["express_keys_initialized"] = True
-            self._save()
+            candidate = copy.deepcopy(self._state)
+            candidate["express_keys"] = clean
+            candidate["express_keys_initialized"] = True
+            if not self._save(candidate):
+                raise OSError("无法持久化 Express API Key 列表")
+            self._state = candidate
             print(f"🔑 [状态管理器] 已保存 {len(clean)} 个 Express API Key（明文存于 web_state.json，权限 0600）。")
         return clean
 

@@ -7,7 +7,7 @@ if not exist "%VERTEX_SCRIPT%" (
   exit /b 1
 )
 if "%~1"=="" (
-  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%VERTEX_SCRIPT%" start
+  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%VERTEX_SCRIPT%" run
 ) else (
   powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%VERTEX_SCRIPT%" %*
 )

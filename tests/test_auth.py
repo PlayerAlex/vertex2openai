@@ -45,14 +45,14 @@ class ApiBearerTests(unittest.TestCase):
         self.client.close()
 
     def test_bearer_accepts_legacy_and_canonical_key_during_migration(self):
-        with patch.object(auth, "API_KEY", "legacy"):
+        with patch.object(auth.app_state, "get_client_api_key", return_value="legacy"):
             legacy = self.client.get("/protected", headers={"Authorization": "Bearer legacy"})
             canonical = self.client.get("/protected", headers={"Authorization": "Bearer ksv-legacy"})
         self.assertEqual(200, legacy.status_code)
         self.assertEqual(200, canonical.status_code)
 
     def test_bearer_for_prefixed_config_is_strict(self):
-        with patch.object(auth, "API_KEY", "ksv-secret"):
+        with patch.object(auth.app_state, "get_client_api_key", return_value="ksv-secret"):
             rejected = self.client.get("/protected", headers={"Authorization": "Bearer secret"})
             accepted = self.client.get("/protected", headers={"Authorization": "Bearer ksv-secret"})
             missing = self.client.get("/protected")

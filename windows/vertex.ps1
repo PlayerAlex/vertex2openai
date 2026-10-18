@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("start", "stop", "restart", "status", "logs", "update", "open")]
+    [ValidateSet("run", "start", "stop", "restart", "status", "logs", "update", "open")]
     [string]$Command = "start",
 
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -125,6 +125,8 @@ function Import-ServiceEnvironment {
     }
     [Environment]::SetEnvironmentVariable("STATE_DIR", $DataDir, "Process")
     [Environment]::SetEnvironmentVariable("CONSOLE_AUTH", "local", "Process")
+    [Environment]::SetEnvironmentVariable("PYTHONUNBUFFERED", "1", "Process")
+    [Environment]::SetEnvironmentVariable("PYTHONIOENCODING", "utf-8", "Process")
 }
 
 function Get-VerifiedPython([string]$Candidate) {
@@ -344,7 +346,9 @@ function Stop-Service {
         return
     }
     Write-Info "Stopping $ProductName (PID $($process.ProcessId))..."
-    Stop-Process -Id $process.ProcessId -ErrorAction Stop
+    # The Windows venv redirector may have a child Python process.
+    & "$env:SystemRoot\System32\taskkill.exe" /PID $process.ProcessId /T /F | Out-Null
+    if ($LASTEXITCODE -ne 0 -and (Get-ManagedProcess)) { throw "Could not stop the managed service process tree." }
     try { Wait-Process -Id $process.ProcessId -Timeout 10 -ErrorAction Stop } catch {
         Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
     }
@@ -452,6 +456,46 @@ function Install-Or-Update([bool]$IsUpdate) {
     }
 }
 
+function Run-Console {
+    Initialize-Directories
+    if (-not (Test-Path -LiteralPath (Join-Path $RepoDir "app\main.py"))) { Install-Or-Update $false }
+    Stop-Service
+    if (Test-PortOpen) { throw "Port $Port is already in use by another program." }
+    $python = Ensure-Python
+    $venvPython = Ensure-Venv $python
+    Install-Dependencies $venvPython $RepoDir
+    Import-ServiceEnvironment
+    if (-not ("VertexConsoleProcess" -as [type])) {
+        Add-Type -Path (Join-Path $PSScriptRoot "ConsoleProcess.cs")
+    }
+    $owned = $null
+    try {
+        $owned = New-Object VertexConsoleProcess($venvPython, (Join-Path $RepoDir "app"), $StdoutLog, $StderrLog)
+        [System.IO.File]::WriteAllText($PidFile, [string]$owned.ProcessId, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Info "Starting $ProductName. Closing this window stops the service."
+        $healthy = $false
+        for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 1
+            if ($owned.HasExited) { break }
+            if (Test-Healthy) { $healthy = $true; break }
+        }
+        if (-not $healthy) {
+            Show-Logs $false
+            throw "Service did not become healthy. Review the log above."
+        }
+        Write-Ok "Service started (PID $($owned.ProcessId)). Close this window or press Ctrl+C to stop."
+        Open-Console
+        Show-Logs $true $owned
+    } finally {
+        if ($owned) {
+            $owned.Dispose()
+            if ((Test-Path -LiteralPath $PidFile) -and ([System.IO.File]::ReadAllText($PidFile)).Trim() -eq [string]$owned.ProcessId) {
+                Remove-Item -LiteralPath $PidFile -Force
+            }
+        }
+    }
+}
+
 function Show-Status {
     $process = Get-ManagedProcess
     if ($process) {
@@ -465,28 +509,45 @@ function Show-Status {
     Write-Host "Console: $ConsoleUrl"
 }
 
-function Show-Logs([bool]$Follow) {
+function Show-Logs([bool]$Follow, $OwnedProcess = $null) {
     Initialize-Directories
     if (-not (Test-Path -LiteralPath $StdoutLog) -and -not (Test-Path -LiteralPath $StderrLog)) {
         Write-Info "No service logs yet."
         return
     }
-    if (Test-Path -LiteralPath $StdoutLog) {
-        Write-Host "--- service.log ---"
-        Get-Content -LiteralPath $StdoutLog -Tail 100
-    }
-    if (Test-Path -LiteralPath $StderrLog) {
-        Write-Host "--- service-error.log ---"
-        Get-Content -LiteralPath $StderrLog -Tail 100
-    }
-    if ($Follow -and (Test-Path -LiteralPath $StdoutLog)) {
-        Write-Host "--- following application log; press Ctrl+C to stop ---"
-        Get-Content -LiteralPath $StdoutLog -Tail 0 -Wait
+    $readers = @()
+    try {
+        foreach ($path in @($StdoutLog, $StderrLog)) {
+            if (-not (Test-Path -LiteralPath $path)) { continue }
+            $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+            $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::UTF8, $true)
+            $readers += $reader
+            Write-Host "--- $([System.IO.Path]::GetFileName($path)) ---"
+            # Keep the reader open so messages arriving after the initial snapshot are not lost.
+            $lines = $reader.ReadToEnd() -split "`n"
+            $lines | Select-Object -Last 100 | ForEach-Object { Write-Host $_ }
+        }
+        if (-not $Follow) { return }
+        while ($true) {
+            foreach ($reader in $readers) {
+                if ($reader.BaseStream.Length -lt $reader.BaseStream.Position) {
+                    $reader.DiscardBufferedData()
+                    [void]$reader.BaseStream.Seek(0, [System.IO.SeekOrigin]::Begin)
+                }
+                $chunk = $reader.ReadToEnd()
+                if ($chunk) { Write-Host -NoNewline $chunk }
+            }
+            if ($OwnedProcess -and $OwnedProcess.HasExited) { break }
+            Start-Sleep -Milliseconds 250
+        }
+    } finally {
+        foreach ($reader in $readers) { $reader.Dispose() }
     }
 }
 
 try {
     switch ($Command) {
+        "run" { Run-Console }
         "start" { Start-Service $true }
         "stop" { Stop-Service }
         "restart" { Stop-Service; Start-Service $true }
