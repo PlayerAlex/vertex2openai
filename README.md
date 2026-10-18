@@ -71,6 +71,33 @@ python -m unittest discover -s tests -t . -v
 
 测试使用模拟上游，无需 Google 凭据或外部网络。GitHub Actions 会在 Python 3.11 / 3.12 上执行相同测试。
 
+## Windows 一键部署（无需预装 Python / Git）
+
+下载[最新仓库 ZIP](https://github.com/PlayerAlex/vertex2openai/archive/refs/heads/main.zip) 并完整解压，然后双击根目录的 **`启动.bat`**。脚本会自动准备官方 64 位 CPython 3.11/3.12、独立虚拟环境和项目依赖，启动成功后自动打开：
+
+```text
+http://127.0.0.1:8050
+```
+
+以后电脑重启后仍双击 **`启动.bat`** 即可；重复启动会识别已运行的服务。更新时双击 **`更新.bat`**，它会下载 `PlayerAlex/vertex2openai` 的最新 `main` 版本、重启服务，并保留 API Key、Google Key、Cookie 和控制台设置。更新失败会自动恢复上一份可用源码。
+
+运行数据默认位于 `%LOCALAPPDATA%\QuickVertexAPI`：`repo` 是托管源码，`venv` 是独立 Python 环境，`data` 保存配置与凭证，`logs` 保存日志。请保留 ZIP 解压后的文件夹作为双击管理入口；移动它不会影响已经安装的配置，更新也不会修改 `data`。首次安装会生成 `ksv-` 开头的客户端 API Key，可在控制台首页直接复制；Google Key 在「通道与凭证」页面填写。
+
+常用命令也可以在仓库根目录的命令提示符中运行：
+
+```bat
+vertex.bat start
+vertex.bat stop
+vertex.bat restart
+vertex.bat status
+vertex.bat logs
+vertex.bat logs -f
+vertex.bat update
+vertex.bat open
+```
+
+同一 Wi-Fi 的手机可访问 `http://电脑的局域网IP:8050`。Windows 首次弹出防火墙提示时，只需允许“专用网络”；电脑关机、休眠或服务停止后，手机将无法访问。自动安装支持 x64 Windows 10/11；已有受支持的 64 位 Python 会被直接复用。
+
 ## 手机一键部署（Android Termux）
 
 已有旧版本？先看[旧版本升级与迁移教程](docs/UPGRADING.zh-CN.md)，保留原来的 Key、Cookie 和设置。
